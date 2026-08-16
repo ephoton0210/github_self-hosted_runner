@@ -1,0 +1,51 @@
+# This repo is public, so its own CI must run on GitHub-hosted runners, not
+# the fleet it builds — see development/03_SECURITY.md ("never serve
+# pull_request on a public repo"). Do not change runs-on below to self-hosted.
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  shellcheck:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ludeeus/action-shellcheck@master
+        with:
+          scandir: scripts
+
+  hadolint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: hadolint/hadolint-action@v3.1.0
+        with:
+          dockerfile: docker/runner/Dockerfile
+
+  yamllint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ibiqlik/action-yamllint@v3
+        with:
+          file_or_dir: config/repos.yaml.example .github/workflows
+
+  render-compose:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.x"
+      - run: pip install -r requirements.txt
+      - name: Render compose.generated.yaml from the example repo list
+        run: |
+          cp config/repos.yaml.example config/repos.yaml
+          python3 scripts/render-compose.py
+      - name: Validate with docker compose config
+        run: |
+          echo "GH_PAT=dummy-for-ci-validation-only" > .env
+          docker compose -f compose.generated.yaml config >/dev/null

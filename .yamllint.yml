@@ -1,0 +1,7 @@
+extends: default
+
+rules:
+  document-start: disable
+  # GitHub Actions workflow syntax requires an unquoted `on:` key, which
+  # YAML 1.1 parses as boolean true — not a real typo to flag.
+  truthy: disable

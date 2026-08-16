@@ -1,0 +1,6 @@
+# DL3008: pin apt-get package versions. Not worth it for base tooling
+# (curl/git/jq/docker-ce-cli) whose exact versions differ per Ubuntu release
+# and rotate out of the archive — development/03_SECURITY.md's update cadence
+# already covers this via monthly base-image + actions/runner version bumps.
+ignored:
+  - DL3008
