@@ -14,9 +14,8 @@ this is GitHub's own documented warning, not a hypothetical.
 
 Consequence for this project specifically:
 
-- This runner fleet serves **private** target repos only (`bvSkill`, `oneTest`,
-  `stockConn`, future private repos). Do not add a public repo to
-  `config/repos.yaml` / the Phase-2 runner group.
+- This runner fleet serves **private** target repos only. Do not add a public repo
+  to `config/repos.yaml` / the Phase-2 runner group.
 - This repo's *own* CI (linting the Compose files, validating `repos.yaml`, etc.)
   must run on **GitHub-hosted** runners, precisely because it is public and its
   `pull_request` workflows can be triggered by anyone's fork. Do not "dogfood" the

@@ -12,8 +12,8 @@ Status: **done**. Deliverables: [00_OVERVIEW.md](00_OVERVIEW.md),
 Status: not started.
 
 Scope: one host, repository-scoped runners (per
-[01_ARCHITECTURE.md](01_ARCHITECTURE.md) Phase 1), serving `bvSkill` first, then
-`oneTest` and `stockConn`.
+[01_ARCHITECTURE.md](01_ARCHITECTURE.md) Phase 1), serving one target repo first,
+then expanding to the rest of the private repos hitting the quota.
 
 Work items:
 
@@ -22,14 +22,13 @@ Work items:
    fine-grained PAT, register ephemeral, run one job, exit.
 3. `config/repos.yaml` + `scripts/render-compose.py` — declarative repo list →
    generated Compose file (see [02_DEPLOYMENT_DESIGN.md](02_DEPLOYMENT_DESIGN.md)).
-4. Point `bvSkill`'s heaviest workflow jobs (the `build-backend` / `build-frontend`
-   / `build-postgres` Docker-image jobs across its platform `*-build-check.yml`
-   workflows) at `runs-on: [self-hosted, linux, x64, docker]`; leave lightweight
+4. Point the first target repo's heaviest workflow jobs (e.g. Docker-image build
+   jobs) at `runs-on: [self-hosted, linux, x64, docker]`; leave lightweight
    typecheck/lint jobs on `ubuntu-latest` initially to de-risk the cutover.
-5. Validate end-to-end on a real PR: checks appear normally, logs stream, GHCR push
-   still works from the runner's Docker context.
-6. Size `replicas:` per repo against observed concurrency (the 4-way
-   `backend-check` fan-out is the concrete baseline).
+5. Validate end-to-end on a real PR: checks appear normally, logs stream, registry
+   push still works from the runner's Docker context.
+6. Size `replicas:` per repo against observed concurrency (a multi-way job fan-out
+   on a real PR is the concrete baseline to size against).
 7. Run for 2–4 weeks alongside GitHub-hosted as a fallback; confirm zero
    GitHub-hosted minutes consumed for migrated jobs via the Billing → Metered usage
    page.
@@ -44,11 +43,13 @@ Status: not started. Depends on: Phase 1 acceptance criteria met.
 
 Work items:
 
-1. Create (or convert to) a free GitHub Organization.
+1. Identify or create a free GitHub Organization to act as the shared pool's home
+   (see [01_ARCHITECTURE.md](01_ARCHITECTURE.md) Phase 2 — an existing,
+   lightly-used org may already qualify).
 2. Decide per-repo: transfer ownership into the org, or leave as-is and only put
    *new* repos in the org — transferring existing repos touches collaborator
-   permissions, any hard-coded `github.com/ephoton0210/...` URLs, and submodule
-   references (`bvSkill` pulls `oneTest`/`stockConn` as submodules — those URLs
+   permissions, any hard-coded `github.com/<owner>/...` URLs, and submodule
+   references (if a target repo pulls other target repos as submodules, those URLs
    would need updating on transfer).
 3. Register the Phase 1 runner fleet's containers against the org instead of
    per-repo (registration-target + config schema change only, per

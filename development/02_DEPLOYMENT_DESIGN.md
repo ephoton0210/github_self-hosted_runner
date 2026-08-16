@@ -9,8 +9,8 @@
   `ghcr.io` — no inbound ports required anywhere in this design.
 - Persistent disk for the Docker build-layer cache (this is what makes self-hosted
   builds *faster* than GitHub-hosted, not just free — see "Build cache" below).
-- Enough RAM/CPU to run the target repos' heaviest job (multi-service Docker image
-  builds, in bvSkill's case) without starving concurrent jobs — sized in
+- Enough RAM/CPU to run the target repos' heaviest job (e.g. multi-service Docker
+  image builds) without starving concurrent jobs — sized in
   [04_ROADMAP.md](04_ROADMAP.md) Phase 1 acceptance criteria.
 
 ## Runner image
@@ -30,7 +30,7 @@ state-drift — acceptable for this project's job sizes.
 
 ## Docker-in-Docker vs Docker-outside-of-Docker
 
-bvSkill's workflows (and most target repos) use `docker/build-push-action` and
+Most target repos' workflows use `docker/build-push-action` and
 `docker/setup-buildx-action`, so the runner needs to be able to build images.
 Two ways to give it that ability:
 
@@ -53,16 +53,16 @@ single source of truth:
 
 ```
 config/repos.yaml
-  - owner: ephoton0210
-    repo: bvSkill
+  - owner: <account>
+    repo: repo-a
     labels: [self-hosted, linux, x64, docker]
-    replicas: 2        # match observed concurrency, e.g. the 4-way backend-check fan-out
-  - owner: ephoton0210
-    repo: oneTest
+    replicas: 2        # match observed concurrency, e.g. a multi-way job fan-out
+  - owner: <account>
+    repo: repo-b
     labels: [self-hosted, linux, x64]
     replicas: 1
-  - owner: ephoton0210
-    repo: stockConn
+  - owner: <account>
+    repo: repo-c
     labels: [self-hosted, linux, x64]
     replicas: 1
 ```

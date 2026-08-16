@@ -30,9 +30,10 @@ withdrawn within 48 hours; see `README.md` for the source).
 | **Organization** | Org owners | Every repo in the org (via runner groups) | A GitHub Organization (free tier is enough) |
 | **Enterprise** | Enterprise admins | Every org in the enterprise | GitHub Enterprise Cloud |
 
-`ephoton0210` is a personal user account, so only the repository scope is available
-today. This is the constraint from [00_OVERVIEW.md](00_OVERVIEW.md) — it is why the
-design has two phases instead of one.
+A GitHub *personal user account* only has the repository scope available to it —
+there is no account-wide registration option. This is the constraint from
+[00_OVERVIEW.md](00_OVERVIEW.md) — it is why the design has two phases instead of
+one.
 
 ## Phase 1 — repository-scoped runner fleet (works today, no account changes)
 
@@ -44,15 +45,15 @@ one fleet because it is deployed and managed as a single unit.
 ```mermaid
 flowchart LR
     subgraph Host["Self-hosted host (Docker Compose)"]
-        R1["runner: bvSkill"]
-        R2["runner: oneTest"]
-        R3["runner: stockConn"]
+        R1["runner: repo-a"]
+        R2["runner: repo-b"]
+        R3["runner: repo-c"]
         RN["runner: ...next repo"]
     end
     GH["GitHub Actions\n(scheduler + log relay)"]
-    P1[("Repo: bvSkill")]
-    P2[("Repo: oneTest")]
-    P3[("Repo: stockConn")]
+    P1[("Repo: repo-a")]
+    P2[("Repo: repo-b")]
+    P3[("Repo: repo-c")]
 
     R1 <-- outbound HTTPS long-poll --> GH
     R2 <-- outbound HTTPS long-poll --> GH
@@ -77,12 +78,28 @@ Trade-offs accepted in Phase 1:
 
 ## Phase 2 — organization-scoped runner group (true account-wide pool)
 
-Move the target repositories (or at minimum, create new ones) inside a GitHub
-Organization — this is free and does not require GitHub Team/Enterprise for basic
-org-level runner groups. Register the runner fleet once, at the org level, with a
-runner group whose repository-access policy lists the member repos. Every repo in
-the org then shares one pool; adding a new repo to the runner group is a UI/API
-change, not a new runner registration.
+This does not necessarily require creating a brand-new organization. Org-level
+runner groups are available on GitHub's Free plan, so if the account already owns
+*any* GitHub Organization — even one created for unrelated projects, with no paid
+seats — Phase 2 can often target that existing org directly, rather than standing
+up a new one. Worth checking (`gh api /orgs/<name>` or the account's
+`https://github.com/settings/organizations` page) before assuming Phase 2 starts
+from zero.
+
+Once an org is chosen, Phase 2 is a matter of moving/adding target repos into it and
+registering the runner fleet once, at the org level, with a runner group whose
+repository-access policy lists the member repos. Every repo in the org then shares
+one pool; adding a new repo to the runner group is a UI/API change, not a new
+runner registration.
+
+One consequence worth calling out: organizations and personal users are separate
+GitHub billing accounts, each with its own metered-usage pool. An existing org
+already has its own Actions minutes allotment, entirely separate from the personal
+account's pool that this project exists to stop exhausting. Moving target repos
+into that org therefore also changes *which* quota their GitHub-hosted jobs (for any
+job still left running on GitHub-hosted runners) draw from — relevant context for
+[04_ROADMAP.md](04_ROADMAP.md)'s Phase 2 sequencing, independent of the
+self-hosted-runner work itself.
 
 ```mermaid
 flowchart LR
@@ -90,7 +107,7 @@ flowchart LR
         RG["Runner group: 'main-pool'\n(N identical runner instances)"]
     end
     GH["GitHub Actions\n(org-level scheduler)"]
-    ORG["Organization: (new)\n repos: bvSkill, oneTest, stockConn, ..."]
+    ORG["Organization\n repos: repo-a, repo-b, repo-c, ..."]
 
     RG <-- outbound HTTPS long-poll --> GH
     GH --- ORG
@@ -99,7 +116,7 @@ flowchart LR
 This is the only architecture that matches the original ask — "handle the whole
 account's GitHub Actions" — literally. It is staged as Phase 2 because migrating
 repo ownership from a personal account into an org is a real structural change
-(admin transfer, any hard-coded `github.com/ephoton0210/...` URLs, collaborator
+(admin transfer, any hard-coded `github.com/<owner>/...` URLs, collaborator
 permissions) that deserves to happen deliberately, after Phase 1 has proven the
 runner mechanics work. See [04_ROADMAP.md](04_ROADMAP.md) for sequencing.
 
