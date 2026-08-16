@@ -1,0 +1,14 @@
+# Copy this file to config/repos.yaml and fill in real values.
+#
+# config/repos.yaml itself is gitignored — this repo is public
+# (development/03_SECURITY.md), so real target-repo names stay local rather
+# than committed.
+repos:
+  - owner: <account>
+    repo: repo-a
+    labels: [self-hosted, linux, x64, docker]
+    replicas: 2 # match observed concurrency, e.g. a multi-way job fan-out
+  - owner: <account>
+    repo: repo-b
+    labels: [self-hosted, linux, x64]
+    replicas: 1

@@ -4,8 +4,19 @@ A self-hosted GitHub Actions runner fleet, built to stop a private-repo account 
 running out of the free 2,000-minutes/month Actions quota — without raising a
 spending limit or upgrading a plan.
 
-**Status: design phase.** No implementation yet — see [`development/`](development/)
-for the full plan before any code lands.
+**Status: Phase 1 (repository-scoped MVP) in progress.** Design is done; the
+runner image, registration entrypoint, and declarative repo config are
+scaffolded — see [`development/`](development/) for the full plan and
+[04_ROADMAP.md](development/04_ROADMAP.md) for what's left.
+
+## Repository layout
+
+| Path | Covers |
+|---|---|
+| [`docker/runner/Dockerfile`](docker/runner/Dockerfile) | Runner image: pinned `actions/runner` + `docker` CLI (DooD) |
+| [`scripts/register-runner.sh`](scripts/register-runner.sh) | Container entrypoint — mints a registration token, runs one ephemeral job, exits |
+| [`scripts/render-compose.py`](scripts/render-compose.py) | Renders `config/repos.yaml` into `compose.generated.yaml` |
+| [`config/repos.yaml.example`](config/repos.yaml.example) | Template for the declarative repo list — copy to `config/repos.yaml` (gitignored) and fill in real values |
 
 ## Why
 

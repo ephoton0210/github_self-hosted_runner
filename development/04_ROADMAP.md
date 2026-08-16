@@ -9,7 +9,9 @@ Status: **done**. Deliverables: [00_OVERVIEW.md](00_OVERVIEW.md),
 
 ## Phase 1 — Repository-scoped MVP
 
-Status: not started.
+Status: **in progress**. Items 1–3 (buildable without a live host or a real
+target repo) are scaffolded; items 4–7 need an actual host and a real target
+repo to proceed.
 
 Scope: one host, repository-scoped runners (per
 [01_ARCHITECTURE.md](01_ARCHITECTURE.md) Phase 1), serving one target repo first,
@@ -17,11 +19,13 @@ then expanding to the rest of the private repos hitting the quota.
 
 Work items:
 
-1. `docker/runner/Dockerfile` — pinned `actions/runner` + `docker` CLI (DooD).
-2. `scripts/register-runner.sh` — entrypoint: mint registration token via
-   fine-grained PAT, register ephemeral, run one job, exit.
-3. `config/repos.yaml` + `scripts/render-compose.py` — declarative repo list →
-   generated Compose file (see [02_DEPLOYMENT_DESIGN.md](02_DEPLOYMENT_DESIGN.md)).
+1. ~~`docker/runner/Dockerfile` — pinned `actions/runner` + `docker` CLI (DooD).~~ done.
+2. ~~`scripts/register-runner.sh` — entrypoint: mint registration token via
+   fine-grained PAT, register ephemeral, run one job, exit.~~ done.
+3. ~~`config/repos.yaml` + `scripts/render-compose.py` — declarative repo list →
+   generated Compose file (see [02_DEPLOYMENT_DESIGN.md](02_DEPLOYMENT_DESIGN.md)).~~
+   done — copy `config/repos.yaml.example` to `config/repos.yaml` (gitignored,
+   holds real repo names) and run `scripts/render-compose.py`.
 4. Point the first target repo's heaviest workflow jobs (e.g. Docker-image build
    jobs) at `runs-on: [self-hosted, linux, x64, docker]`; leave lightweight
    typecheck/lint jobs on `ubuntu-latest` initially to de-risk the cutover.
