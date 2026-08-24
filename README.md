@@ -20,6 +20,20 @@ scaffolded — see [`development/`](development/) for the full plan and
 | [`scripts/render-compose.py`](scripts/render-compose.py) | Renders `config/repos.yaml` into `compose.generated.yaml` |
 | [`config/repos.yaml.example`](config/repos.yaml.example) | Template for the declarative repo list — copy to `config/repos.yaml` (gitignored) and fill in real values |
 
+## Runner Environment & OS Specifications
+
+The self-hosted runner container is built to match GitHub's official `ubuntu-latest` environment:
+
+| Specification | Details |
+|---|---|
+| **Operating System** | **Ubuntu 24.04 LTS (`noble`)**, 64-bit x86 (`x64`) — matches GitHub-hosted `ubuntu-latest` |
+| **Runner Runtime** | Official GitHub Actions Runner runtime (pinned version in [`Dockerfile`](docker/runner/Dockerfile)) |
+| **Pre-installed Tooling** | `docker-ce-cli`, `git`, `curl`, `jq`, `ca-certificates`, `gnupg` |
+| **Docker Support** | **DooD (Docker-outside-of-Docker)** via host `/var/run/docker.sock` bind mount |
+| **Build Caching** | Reuses host Docker layer cache across jobs (resulting in faster container builds) |
+| **Action Compatibility** | Standard actions (`actions/checkout`, `actions/setup-python`, `actions/setup-node`, `docker/build-push-action`, etc.) work out of the box |
+
+
 ## GitHub PAT Permission Requirements
 
 To allow runner containers to dynamically mint short-lived registration and removal
