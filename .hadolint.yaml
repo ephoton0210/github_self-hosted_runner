@@ -2,5 +2,10 @@
 # (curl/git/jq/docker-ce-cli) whose exact versions differ per Ubuntu release
 # and rotate out of the archive — development/03_SECURITY.md's update cadence
 # already covers this via monthly base-image + actions/runner version bumps.
+#
+# SC1091: shellcheck rule for sourcing files (e.g. `. /etc/os-release`).
+# Sourced system files are not available to shellcheck during static analysis.
 ignored:
   - DL3008
+  - SC1091
+

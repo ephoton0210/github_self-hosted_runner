@@ -16,6 +16,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 # Docker CLI only — no daemon. DooD: /var/run/docker.sock is bind-mounted at
 # runtime (see development/02_DEPLOYMENT_DESIGN.md). Installing just the CLI
 # keeps the image from also carrying a dockerd this container never runs.
+# hadolint ignore=SC1091
 RUN install -m 0755 -d /etc/apt/keyrings \
     && curl -fsSL https://download.docker.com/linux/ubuntu/gpg -o /etc/apt/keyrings/docker.asc \
     && chmod a+r /etc/apt/keyrings/docker.asc \
