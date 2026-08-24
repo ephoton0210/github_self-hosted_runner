@@ -20,6 +20,116 @@ scaffolded — see [`development/`](development/) for the full plan and
 | [`scripts/render-compose.py`](scripts/render-compose.py) | Renders `config/repos.yaml` into `compose.generated.yaml` |
 | [`config/repos.yaml.example`](config/repos.yaml.example) | Template for the declarative repo list — copy to `config/repos.yaml` (gitignored) and fill in real values |
 
+## GitHub PAT Permission Requirements
+
+To allow runner containers to dynamically mint short-lived registration and removal
+tokens via the GitHub API, a **Fine-grained Personal Access Token (PAT)** is required.
+
+### Required Permissions
+
+Go to GitHub **Settings** → **Developer Settings** → **Personal access tokens** → **[Fine-grained tokens](https://github.com/settings/tokens?type=beta)**:
+
+| Scope / Setting | Recommended Value | Description / Purpose |
+|---|---|---|
+| **Resource owner** | Target personal account or org | The owner of the target repositories |
+| **Repository access** | **Only select repositories** | Select the exact private repositories listed in `config/repos.yaml` |
+| **Repository permissions** → **Administration** | **Read and write** | **Mandatory.** Required to invoke GitHub Actions runner registration (`/actions/runners/registration-token`) and removal (`/actions/runners/remove-token`) endpoints. |
+
+### Why `Administration` instead of `Actions`?
+
+- **Infrastructure vs. Workflow**: The `Actions` permission only controls running, inspecting, and canceling workflows. In GitHub's security model, registering or removing compute nodes (Runners) in a repository is an **infrastructure management action (Repository Settings)**, restricted exclusively to repository administrators.
+- **Security Boundary**: A self-hosted runner executes code directly on your local infrastructure (with Docker socket access). To prevent unauthorized computing nodes from being attached to a repo, GitHub strictly restricts runner registration to `Administration: write`.
+
+> [!IMPORTANT]
+> **Troubleshooting HTTP 404:**
+> If your PAT does not have `Administration: write` permissions, or if the target repo is not selected in the token's repository access list, GitHub's API will return **`HTTP 404 Not Found`** (instead of `403 Forbidden`) to prevent repository discovery. Ensure both settings are configured properly.
+
+## Quickstart
+
+### 1. Configure Credentials
+Copy `.env.example` to `.env` and fill in your Fine-grained PAT:
+```bash
+cp .env.example .env
+```
+```ini
+GH_PAT=github_pat_xxxxxxxxxxxxxxxxxxxx
+```
+
+### 2. Configure Target Repositories
+Copy `config/repos.yaml.example` to `config/repos.yaml`:
+```bash
+cp config/repos.yaml.example config/repos.yaml
+```
+Define your target repositories, labels, and concurrency replicas:
+```yaml
+repos:
+  - owner: <account>
+    repo: repo-a
+    labels: [self-hosted, linux, x64, docker]
+    replicas: 2
+```
+
+### 3. Start Runners
+```bash
+./start.sh
+```
+Check live logs to confirm runners are connected and `Listening for Jobs`:
+```bash
+docker compose -f compose.generated.yaml logs -f
+```
+
+To stop all runners:
+```bash
+./stop.sh
+```
+
+### 4. Update Target Repository Workflows
+In the target repository (e.g. `your-repo/.github/workflows/*.yml`), switch jobs to target self-hosted runners:
+```yaml
+runs-on: [self-hosted, linux, x64]
+# or simply:
+runs-on: self-hosted
+```
+
+> [!WARNING]
+> **Do not use "Re-run" on old failed workflow runs:**
+> GitHub Actions' "Re-run jobs" button executes the exact workflow configuration from the time that commit was created. If the historical commit used `runs-on: ubuntu-latest`, re-running it will still request GitHub-hosted compute and fail immediately when your account quota is 0.
+> 
+> To test your self-hosted runners, you must **commit and push** the updated workflow file (or open a new PR / dispatch a manual workflow) to create a **new workflow run**.
+
+## How to Verify (Confirming Success)
+
+You can verify that your runners are properly registered and working at three levels:
+
+### 1. Local Container Logs
+Check the live runner logs:
+```bash
+docker compose -f compose.generated.yaml logs -f
+```
+A successful runner startup displays:
+```text
+√ Connected to GitHub
+√ Runner successfully added
+√ Settings Saved.
+Current runner version: '2.336.0'
+YYYY-MM-DD HH:MM:SSZ: Listening for Jobs
+```
+When you see **`Listening for Jobs`**, the runner is authenticated and standing by for CI jobs.
+
+### 2. GitHub Web UI (Repository Settings)
+Navigate to your target repository settings in a browser:
+```text
+https://github.com/<owner>/<repo>/settings/actions/runners
+```
+- **Status Badge**: You should see your runner instances (e.g. `runner-<repo>-1`, `runner-<repo>-2`) listed with a green **`Idle`** badge.
+- **Labels**: Verify that the labels (e.g. `self-hosted`, `linux`, `x64`, `docker`) match your `config/repos.yaml`.
+
+### 3. Workflow Execution
+When a workflow job with `runs-on: [self-hosted, ...]` is triggered:
+- **GitHub UI**: The runner status changes from **`Idle`** to **`Active`**.
+- **Container Logs**: You will see `Running job: <job-name>` followed by step execution logs.
+- **Lifecycle**: Upon job completion, the container exits (`--ephemeral`), and Docker Compose automatically spins up a fresh container instance with a new registration token to wait for the next job.
+
 ## Why
 
 GitHub Actions' free minutes are billed **per account**, shared across every

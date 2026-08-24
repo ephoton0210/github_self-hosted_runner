@@ -29,16 +29,20 @@ def render(repos_config):
         replicas = entry.get("replicas", 1)
 
         for i in range(1, replicas + 1):
-            name = f"runner-{repo}-{i}"
-            services[name] = {
-                "build": "./docker/runner",
-                "container_name": name,
+            service_name = f"runner-{repo.lower()}-{i}"
+            services[service_name] = {
+                "build": {
+                    "context": ".",
+                    "dockerfile": "docker/runner/Dockerfile",
+                },
+                "image": "github-actions-runner:latest",
+                "container_name": service_name,
                 "restart": "unless-stopped",
                 "env_file": [".env"],
                 "environment": {
                     "GH_OWNER": owner,
                     "GH_REPO": repo,
-                    "RUNNER_NAME": name,
+                    "RUNNER_NAME": service_name,
                     "RUNNER_LABELS": ",".join(labels),
                 },
                 "volumes": ["/var/run/docker.sock:/var/run/docker.sock"],

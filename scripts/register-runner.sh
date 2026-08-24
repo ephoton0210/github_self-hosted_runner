@@ -19,12 +19,22 @@ AUTH_HEADER="Authorization: Bearer ${GH_PAT}"
 
 api_post_token() {
     local endpoint="$1"
-    curl -fsSL -X POST \
+    local response http_code body
+    response="$(curl -s -w "\n%{http_code}" -X POST \
         -H "${AUTH_HEADER}" \
         -H "Accept: application/vnd.github+json" \
         -H "X-GitHub-Api-Version: 2022-11-28" \
-        "${API_BASE}/actions/runners/${endpoint}" \
-        | jq -r .token
+        "${API_BASE}/actions/runners/${endpoint}")"
+    http_code="$(printf '%s\n' "${response}" | tail -n1)"
+    body="$(printf '%s\n' "${response}" | sed '$d')"
+
+    if [ "${http_code}" != "201" ] && [ "${http_code}" != "200" ]; then
+        echo "Error: GitHub API returned HTTP ${http_code} when requesting ${endpoint} for ${GH_OWNER}/${GH_REPO}." >&2
+        echo "Response: ${body}" >&2
+        echo "Please verify that GH_PAT has 'Administration: write' permissions and repo access for ${GH_REPO}." >&2
+        return 1
+    fi
+    printf '%s\n' "${body}" | jq -r .token
 }
 
 cleanup() {
