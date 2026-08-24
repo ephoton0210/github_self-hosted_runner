@@ -13,6 +13,8 @@ scaffolded — see [`development/`](development/) for the full plan and
 
 | Path | Covers |
 |---|---|
+| [`start.sh`](start.sh) | One-command launcher: renders compose config and starts runners |
+| [`stop.sh`](stop.sh) | Gracefully shuts down runner containers |
 | [`docker/runner/Dockerfile`](docker/runner/Dockerfile) | Runner image: pinned `actions/runner` + `docker` CLI (DooD) |
 | [`scripts/register-runner.sh`](scripts/register-runner.sh) | Container entrypoint — mints a registration token, runs one ephemeral job, exits |
 | [`scripts/render-compose.py`](scripts/render-compose.py) | Renders `config/repos.yaml` into `compose.generated.yaml` |
