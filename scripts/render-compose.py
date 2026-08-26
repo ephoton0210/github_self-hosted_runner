@@ -27,9 +27,11 @@ def render(repos_config):
         repo = entry["repo"]
         labels = entry["labels"]
         replicas = entry.get("replicas", 1)
+        runner_name_prefix = entry.get("runner_name_prefix", f"runner-{repo.lower()}")
 
         for i in range(1, replicas + 1):
             service_name = f"runner-{repo.lower()}-{i}"
+            runner_name = f"{runner_name_prefix}-{i}"
             services[service_name] = {
                 "build": {
                     "context": ".",
@@ -38,11 +40,12 @@ def render(repos_config):
                 "image": "github-actions-runner:latest",
                 "container_name": service_name,
                 "restart": "unless-stopped",
+                "stop_grace_period": "30s",
                 "env_file": [".env"],
                 "environment": {
                     "GH_OWNER": owner,
                     "GH_REPO": repo,
-                    "RUNNER_NAME": service_name,
+                    "RUNNER_NAME": runner_name,
                     "RUNNER_LABELS": ",".join(labels),
                 },
                 "volumes": ["/var/run/docker.sock:/var/run/docker.sock"],
@@ -74,11 +77,12 @@ def main():
             f"{args.repos_yaml} and fill in real values."
         )
 
-    repos_config = yaml.safe_load(args.repos_yaml.read_text())
+    repos_config = yaml.safe_load(args.repos_yaml.read_text(encoding="utf-8"))
     compose = render(repos_config)
 
     args.output.write_text(
-        GENERATED_HEADER + yaml.dump(compose, sort_keys=False, default_flow_style=False)
+        GENERATED_HEADER + yaml.dump(compose, sort_keys=False, default_flow_style=False),
+        encoding="utf-8",
     )
     print(f"wrote {args.output} ({len(compose['services'])} service(s))")
 

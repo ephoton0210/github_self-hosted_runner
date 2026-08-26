@@ -13,8 +13,9 @@ scaffolded — see [`development/`](development/) for the full plan and
 
 | Path | Covers |
 |---|---|
-| [`start.sh`](start.sh) | One-command launcher: renders compose config and starts runners |
-| [`stop.sh`](stop.sh) | Gracefully shuts down runner containers |
+| [`start.sh`](start.sh) / [`start.ps1`](start.ps1) | One-command launcher for Bash / PowerShell: renders compose config and starts runners |
+| [`stop.sh`](stop.sh) / [`stop.ps1`](stop.ps1) | Gracefully shuts down runner containers from Bash / PowerShell |
+| [`.gitattributes`](.gitattributes) | Preserves LF line endings for Linux container sources on Windows checkouts |
 | [`docker/runner/Dockerfile`](docker/runner/Dockerfile) | Runner image: pinned `actions/runner` + `docker` CLI (DooD) |
 | [`scripts/register-runner.sh`](scripts/register-runner.sh) | Container entrypoint — mints a registration token, runs one ephemeral job, exits |
 | [`scripts/render-compose.py`](scripts/render-compose.py) | Renders `config/repos.yaml` into `compose.generated.yaml` |
@@ -60,10 +61,36 @@ Go to GitHub **Settings** → **Developer Settings** → **Personal access token
 
 ## Quickstart
 
+### Windows host requirements
+
+The runners remain **Linux containers** even when the host is Windows. Install
+[Docker Desktop](https://www.docker.com/products/docker-desktop/) and make sure it
+is running in **Linux containers** mode (the default). Docker Desktop provides the
+Linux Docker engine and forwards its Docker socket into the runner containers, so
+workflows should continue to request the `linux` labels configured below.
+Keep the committed `.gitattributes` file: it prevents Git for Windows from
+converting the Linux container entrypoint to CRLF line endings.
+
+Install Python 3, then install the renderer dependency from PowerShell:
+
+```powershell
+py -3 -m pip install -r requirements.txt
+```
+
+> [!IMPORTANT]
+> Docker socket access gives every job host-level control of Docker Desktop's Linux
+> VM. Only use this fleet for trusted workflows from private repositories; the same
+> security restrictions in [03_SECURITY.md](development/03_SECURITY.md) apply on
+> Windows.
+
 ### 1. Configure Credentials
 Copy `.env.example` to `.env` and fill in your Fine-grained PAT:
 ```bash
 cp .env.example .env
+```
+On Windows PowerShell:
+```powershell
+Copy-Item .env.example .env
 ```
 ```ini
 GH_PAT=github_pat_xxxxxxxxxxxxxxxxxxxx
@@ -74,18 +101,28 @@ Copy `config/repos.yaml.example` to `config/repos.yaml`:
 ```bash
 cp config/repos.yaml.example config/repos.yaml
 ```
+On Windows PowerShell:
+```powershell
+Copy-Item config/repos.yaml.example config/repos.yaml
+```
 Define your target repositories, labels, and concurrency replicas:
 ```yaml
 repos:
   - owner: <account>
     repo: repo-a
     labels: [self-hosted, linux, x64, docker]
+    # Optional: avoids name clashes with a separate fleet serving this repo.
+    runner_name_prefix: runner-repo-a-host-a
     replicas: 2
 ```
 
 ### 3. Start Runners
 ```bash
 ./start.sh
+```
+On Windows PowerShell:
+```powershell
+.\start.ps1
 ```
 Check live logs to confirm runners are connected and `Listening for Jobs`:
 ```bash
@@ -95,6 +132,10 @@ docker compose -f compose.generated.yaml logs -f
 To stop all runners:
 ```bash
 ./stop.sh
+```
+On Windows PowerShell:
+```powershell
+.\stop.ps1
 ```
 
 ### 4. Update Target Repository Workflows

@@ -2,9 +2,17 @@
 
 ## Host requirements
 
-- Linux x86_64 (matches the `ubuntu-latest` jobs being replaced — no need for
-  ARM/macOS support in v1).
-- Docker Engine + the `docker compose` plugin.
+- Linux x86_64, or Windows x86_64 with Docker Desktop configured for **Linux
+  containers**. The runner image and jobs are Linux (`ubuntu-latest`-compatible),
+  so Windows containers are not supported in v1.
+- Docker Engine (Linux) or Docker Desktop (Windows), plus the `docker compose`
+  plugin. Docker Desktop's Linux VM supplies the Docker socket mounted into the
+  runner containers.
+- Python 3 with PyYAML (`python3 -m pip install -r requirements.txt` on Linux,
+  `py -3 -m pip install -r requirements.txt` on Windows) to render Compose.
+- A checkout that preserves LF line endings for Linux-executed sources. The
+  repository's `.gitattributes` enforces this for shell scripts, the Dockerfile,
+  and Python renderer on Windows.
 - Outbound HTTPS (443) to `github.com`, `*.actions.githubusercontent.com`, and
   `ghcr.io` — no inbound ports required anywhere in this design.
 - Persistent disk for the Docker build-layer cache (this is what makes self-hosted
@@ -56,6 +64,7 @@ config/repos.yaml
   - owner: <account>
     repo: repo-a
     labels: [self-hosted, linux, x64, docker]
+    runner_name_prefix: runner-repo-a-host-a  # optional, host-specific GitHub runner name
     replicas: 2        # match observed concurrency, e.g. a multi-way job fan-out
   - owner: <account>
     repo: repo-b
@@ -70,6 +79,9 @@ config/repos.yaml
 A generator script (`scripts/render-compose.py`) turns this file into a
 `compose.generated.yaml` with one Compose service per `(repo, replica)` pair. Adding
 a repo is a 3-line YAML edit + `docker compose up -d`, not a manual runbook.
+`runner_name_prefix` is optional; use it when another fleet may leave a GitHub
+runner session with the default name. It changes only the GitHub-visible runner
+name, not the Compose service name or number of replicas.
 
 ## Registration-token lifecycle
 

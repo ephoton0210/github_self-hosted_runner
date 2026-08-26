@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# This file must retain LF line endings: it is executed inside a Linux container.
 # Entrypoint for docker/runner/Dockerfile.
 #
 # Mints a short-lived registration token via the GitHub API (registration
@@ -37,12 +38,24 @@ api_post_token() {
     printf '%s\n' "${body}" | jq -r .token
 }
 
+runner_pid=""
+
 cleanup() {
+    local exit_code=$?
+    trap - EXIT INT TERM
+
+    if [ -n "${runner_pid}" ] && kill -0 "${runner_pid}" 2>/dev/null; then
+        kill -TERM "${runner_pid}" 2>/dev/null || true
+        wait "${runner_pid}" || true
+    fi
+
     local removal_token
     removal_token="$(api_post_token remove-token || true)"
     if [ -n "${removal_token:-}" ]; then
         ./config.sh remove --token "${removal_token}" || true
     fi
+
+    exit "${exit_code}"
 }
 trap cleanup EXIT INT TERM
 
@@ -61,4 +74,6 @@ fi
     --ephemeral \
     --replace
 
-./run.sh
+./run.sh &
+runner_pid=$!
+wait "${runner_pid}"

@@ -1,0 +1,7 @@
+# Linux runner sources must retain LF line endings when checked out on Windows.
+*.sh text eol=lf
+Dockerfile text eol=lf
+*.py text eol=lf
+
+# Keep PowerShell launchers native to Windows.
+*.ps1 text eol=crlf

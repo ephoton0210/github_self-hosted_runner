@@ -8,6 +8,8 @@ repos:
   - owner: <account>
     repo: repo-a
     labels: [self-hosted, linux, x64, docker]
+    # Optional: use a host-specific prefix when multiple fleets serve one repo.
+    # runner_name_prefix: runner-repo-a-host-a
     replicas: 2  # match observed concurrency, e.g. a multi-way job fan-out
   - owner: <account>
     repo: repo-b
