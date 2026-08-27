@@ -26,14 +26,17 @@ Work items:
    generated Compose file (see [02_DEPLOYMENT_DESIGN.md](02_DEPLOYMENT_DESIGN.md)).~~
    done — copy `config/repos.yaml.example` to `config/repos.yaml` (gitignored,
    holds real repo names) and run `scripts/render-compose.py`.
-4. Point the first target repo's heaviest workflow jobs (e.g. Docker-image build
+4. ~~Native macOS extension — optional per-repo `macos:` configuration, launchd
+   renderer, SHA-256-verified runner archive, and one-job supervisor.~~ done —
+   requires a real macOS host and trusted target repo for end-to-end validation.
+5. Point the first target repo's heaviest workflow jobs (e.g. Docker-image build
    jobs) at `runs-on: [self-hosted, linux, x64, docker]`; leave lightweight
    typecheck/lint jobs on `ubuntu-latest` initially to de-risk the cutover.
-5. Validate end-to-end on a real PR: checks appear normally, logs stream, registry
+6. Validate end-to-end on a real PR: checks appear normally, logs stream, registry
    push still works from the runner's Docker context.
-6. Size `replicas:` per repo against observed concurrency (a multi-way job fan-out
+7. Size `replicas:` per repo against observed concurrency (a multi-way job fan-out
    on a real PR is the concrete baseline to size against).
-7. Run for 2–4 weeks alongside GitHub-hosted as a fallback; confirm zero
+8. Run for 2–4 weeks alongside GitHub-hosted as a fallback; confirm zero
    GitHub-hosted minutes consumed for migrated jobs via the Billing → Metered usage
    page.
 
@@ -83,5 +86,5 @@ Not scheduled. Trigger conditions to revisit:
 
 - General-purpose CI platform features unrelated to the minutes problem.
 - GHCR storage/bandwidth quota management — separate problem, separate quota.
-- Windows/macOS self-hosted runners — no target repo currently needs a non-Linux
-  runner; revisit only if one does.
+- Native Windows runners. Windows Docker Desktop hosts remain supported for the
+  Linux container fleet; a native Windows runner remains out of scope.

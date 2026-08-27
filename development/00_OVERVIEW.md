@@ -32,6 +32,8 @@ that:
 - Starts from a single physical/virtual host (Phase 1) and grows into a design that
   can genuinely serve *every* repository under one account (Phase 2), not just one
   repo at a time.
+- Supports a native macOS extension for the subset of private workflows that need
+  Apple tooling, without pretending a Linux Docker container can run macOS jobs.
 - Is documented and packaged well enough that someone outside this project can clone
   it, point it at their own repos, and reuse it — hence public + MIT.
 

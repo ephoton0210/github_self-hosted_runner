@@ -5,6 +5,8 @@
 - Linux x86_64, or Windows x86_64 with Docker Desktop configured for **Linux
   containers**. The runner image and jobs are Linux (`ubuntu-latest`-compatible),
   so Windows containers are not supported in v1.
+- Or macOS 11+ on Apple silicon or Intel for workflows that need native Apple
+  tooling. macOS jobs run as a user-level launchd agent, not in a Linux container.
 - Docker Engine (Linux) or Docker Desktop (Windows), plus the `docker compose`
   plugin. Docker Desktop's Linux VM supplies the Docker socket mounted into the
   runner containers.
@@ -35,6 +37,35 @@ accepts exactly one job, executes it, reports the result, then exits. Compose (o
 process supervisor) restarts the container to pick up the next job. This trades a
 few seconds of container-start latency per job for perfect isolation and zero
 state-drift — acceptable for this project's job sizes.
+
+## Native macOS runners
+
+An optional `macos:` mapping on an entry in `config/repos.yaml` creates a separate
+native fleet for that repository:
+
+```
+  - owner: <account>
+    repo: apple-app
+    labels: [self-hosted, linux, x64]
+    replicas: 1
+    macos:
+      labels: [native-macos]    # additional, custom routing label
+      runner_name_prefix: runner-apple-app-macos-host-a
+      replicas: 1
+```
+
+`start-macos.sh` invokes `scripts/render-macos-launchd.py`, then bootstraps the
+generated user agents in the current GUI login session. The existing repo-level
+PAT is read from `.env`, never placed in the plist. Every agent runs
+`macos-runner-loop.sh`, which verifies the pinned official archive's SHA-256,
+expands a fresh runner directory, registers it with `--ephemeral --disableupdate`,
+and erases that directory after its one job. The cached archive and local logs stay
+under `.runner-macos/`, which is gitignored.
+
+GitHub automatically adds `self-hosted`, `macOS`, and `ARM64`/`x64` labels. The
+`macos.labels` list supplies extra custom labels only; in the example, workflows
+should use `runs-on: [self-hosted, macOS, native-macos]`. Do not add a `macos:` mapping to
+a public repository or to any repository where untrusted pull requests can execute.
 
 ## Docker-in-Docker vs Docker-outside-of-Docker
 

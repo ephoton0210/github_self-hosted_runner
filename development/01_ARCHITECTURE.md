@@ -120,10 +120,10 @@ repo ownership from a personal account into an org is a real structural change
 permissions) that deserves to happen deliberately, after Phase 1 has proven the
 runner mechanics work. See [04_ROADMAP.md](04_ROADMAP.md) for sequencing.
 
-## Job execution: container vs bare metal
+## Job execution: Linux containers vs native macOS
 
-Both phases use **ephemeral, containerized runners** (one container = one job, then
-destroyed) rather than long-lived bare-metal installs. Rationale:
+Linux runners use **ephemeral, containerized runners** (one container = one job,
+then destroyed) rather than long-lived bare-metal installs. Rationale:
 
 - No state drift between jobs (GitHub-hosted parity) without manually scripting
   workspace cleanup.
@@ -132,3 +132,11 @@ destroyed) rather than long-lived bare-metal installs. Rationale:
 
 The concrete container image, Compose layout, and token-refresh mechanism are
 specified in [02_DEPLOYMENT_DESIGN.md](02_DEPLOYMENT_DESIGN.md).
+
+macOS cannot be supplied by a Linux container. When a private repository needs
+Xcode, code signing, or another Apple-only tool, the same repo entry can define an
+optional native `macos:` fleet. `start-macos.sh` renders one user-level `launchd`
+agent per replica. Each agent downloads a pinned, verified macOS runner archive,
+registers it as `--ephemeral`, runs one job, removes its runner and work directory,
+and repeats. The host account is therefore the execution boundary: use a dedicated
+macOS account and never schedule untrusted/public PR code there.

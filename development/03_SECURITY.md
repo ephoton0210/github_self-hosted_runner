@@ -31,6 +31,13 @@ a compromised or malicious job to one container lifetime — nothing persists to
 inherited by the next job, and there's no long-lived credential cached inside a
 runner process across jobs.
 
+The native macOS implementation applies the same one-job lifecycle, but it is not
+a security sandbox: workflow processes run directly as the macOS launch-agent
+user. It removes the expanded runner and `_work` directories between jobs; it
+cannot undo changes a job makes elsewhere in that user's account, Keychain, or the
+host. Use a dedicated, non-administrator macOS account with only the signing keys,
+certificates, and toolchains required by these trusted private workflows.
+
 ## Docker socket exposure (DooD) is host-level trust, not sandboxing
 
 The chosen DooD approach (mounting `/var/run/docker.sock`) means any job on this
@@ -73,6 +80,10 @@ guessed upfront.
 
 - `actions/runner` version pinned explicitly in `docker/runner/Dockerfile`; bumped
   on a monthly check against upstream releases, not auto-pulled `:latest`.
+- Native macOS runner version and SHA-256 pinned explicitly in
+  `scripts/macos-runner-loop.sh`; bumped in the same change after verifying the
+  official release checksums. Its automatic updater stays disabled so a known
+  archive is what launches.
 - Base OS image patched on the same cadence.
 - Any CVE affecting the pinned runner version is an out-of-band bump, not held for
   the monthly cycle.

@@ -11,6 +11,13 @@ repos:
     # Optional: use a host-specific prefix when multiple fleets serve one repo.
     # runner_name_prefix: runner-repo-a-host-a
     replicas: 2  # match observed concurrency, e.g. a multi-way job fan-out
+    # Optional native macOS fleet for workflows that require macOS. The runner
+    # receives self-hosted, macOS, and ARM64/x64 labels automatically; these
+    # are additional routing labels. Start it with ./start-macos.sh.
+    macos:
+      labels: [native-macos]
+      # runner_name_prefix: runner-repo-a-macos-host-a
+      replicas: 1
   - owner: <account>
     repo: repo-b
     labels: [self-hosted, linux, x64]

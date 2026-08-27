@@ -13,26 +13,32 @@ scaffolded — see [`development/`](development/) for the full plan and
 
 | Path | Covers |
 |---|---|
-| [`start.sh`](start.sh) / [`start.ps1`](start.ps1) | One-command launcher for Bash / PowerShell: renders compose config and starts runners |
-| [`stop.sh`](stop.sh) / [`stop.ps1`](stop.ps1) | Gracefully shuts down runner containers from Bash / PowerShell |
+| [`start.sh`](start.sh) / [`start.ps1`](start.ps1) | One-command launcher for Linux containers from Bash / PowerShell |
+| [`stop.sh`](stop.sh) / [`stop.ps1`](stop.ps1) | Gracefully shuts down Linux runner containers from Bash / PowerShell |
+| [`start-macos.sh`](start-macos.sh) / [`stop-macos.sh`](stop-macos.sh) | Installs/removes native macOS launchd runner agents |
 | [`.gitattributes`](.gitattributes) | Preserves LF line endings for Linux container sources on Windows checkouts |
 | [`docker/runner/Dockerfile`](docker/runner/Dockerfile) | Runner image: pinned `actions/runner` + `docker` CLI (DooD) |
 | [`scripts/register-runner.sh`](scripts/register-runner.sh) | Container entrypoint — mints a registration token, runs one ephemeral job, exits |
 | [`scripts/render-compose.py`](scripts/render-compose.py) | Renders `config/repos.yaml` into `compose.generated.yaml` |
+| [`scripts/render-macos-launchd.py`](scripts/render-macos-launchd.py) | Renders optional `macos:` entries into local launchd agent plists |
+| [`scripts/macos-runner-loop.sh`](scripts/macos-runner-loop.sh) | Native macOS one-job runner supervisor, download verifier, and cleanup loop |
 | [`config/repos.yaml.example`](config/repos.yaml.example) | Template for the declarative repo list — copy to `config/repos.yaml` (gitignored) and fill in real values |
 
 ## Runner Environment & OS Specifications
 
-The self-hosted runner container is built to match GitHub's official `ubuntu-latest` environment:
+The Linux runner container matches GitHub's official `ubuntu-latest` environment.
+The optional macOS route uses native macOS processes because a Linux container
+cannot execute macOS workflows:
 
 | Specification | Details |
 |---|---|
-| **Operating System** | **Ubuntu 24.04 LTS (`noble`)**, 64-bit x86 (`x64`) — matches GitHub-hosted `ubuntu-latest` |
+| **Linux runner OS** | **Ubuntu 24.04 LTS (`noble`)**, 64-bit x86 (`x64`) — matches GitHub-hosted `ubuntu-latest` |
+| **macOS runner OS** | Native macOS 11+ on the host's architecture (`ARM64` on Apple silicon, `x64` on Intel) |
 | **Runner Runtime** | Official GitHub Actions Runner runtime (pinned version in [`Dockerfile`](docker/runner/Dockerfile)) |
-| **Pre-installed Tooling** | `docker-ce-cli`, `git`, `curl`, `jq`, `ca-certificates`, `gnupg` |
+| **Linux pre-installed tooling** | `docker-ce-cli`, `git`, `curl`, `jq`, `ca-certificates`, `gnupg` |
 | **Docker Support** | **DooD (Docker-outside-of-Docker)** via host `/var/run/docker.sock` bind mount |
 | **Build Caching** | Reuses host Docker layer cache across jobs (resulting in faster container builds) |
-| **Action Compatibility** | Standard actions (`actions/checkout`, `actions/setup-python`, `actions/setup-node`, `docker/build-push-action`, etc.) work out of the box |
+| **macOS lifecycle** | User-level `launchd` agents each provision a verified, native, ephemeral runner for one job, then erase its runner/work directory |
 
 
 ## GitHub PAT Permission Requirements
@@ -60,6 +66,26 @@ Go to GitHub **Settings** → **Developer Settings** → **Personal access token
 > If your PAT does not have `Administration: write` permissions, or if the target repo is not selected in the token's repository access list, GitHub's API will return **`HTTP 404 Not Found`** (instead of `403 Forbidden`) to prevent repository discovery. Ensure both settings are configured properly.
 
 ## Quickstart
+
+### macOS host requirements
+
+Native macOS runners are for workflows that genuinely need macOS (for example,
+Xcode, code signing, or an Apple-platform build). They are **not** Docker
+containers: jobs run as the currently logged-in macOS user. Use a dedicated macOS
+account and only route trusted private-repository workflows to it.
+
+- macOS 11 or later, on either Apple silicon or Intel. `start-macos.sh` selects
+  the matching official runner archive automatically.
+- A logged-in GUI user session. The launcher creates user-level `launchd` agents;
+  do not run it with `sudo`.
+- Python 3 with PyYAML (`python3 -m pip install -r requirements.txt`), plus the
+  built-in `curl`, `jq`, `tar`, `shasum`, and `launchctl` commands.
+- Xcode and any platform-specific toolchains required by the target workflows.
+  Docker Desktop is optional and only needed by macOS jobs that invoke `docker`.
+
+The macOS supervisor disables automatic runner updates so its downloaded archive
+remains reproducible and SHA-256 verified. Update the pinned version and checksum
+together during the monthly runner update in [03_SECURITY.md](development/03_SECURITY.md).
 
 ### Windows host requirements
 
@@ -114,6 +140,12 @@ repos:
     # Optional: avoids name clashes with a separate fleet serving this repo.
     runner_name_prefix: runner-repo-a-host-a
     replicas: 2
+    # Optional native macOS runners for this same repo. GitHub adds the standard
+    # self-hosted, macOS, and ARM64/x64 labels automatically.
+    macos:
+      labels: [native-macos]
+      runner_name_prefix: runner-repo-a-macos-host-a
+      replicas: 1
 ```
 
 ### 3. Start Runners
@@ -124,9 +156,17 @@ On Windows PowerShell:
 ```powershell
 .\start.ps1
 ```
+On macOS, start only the optional `macos:` runner entries:
+```bash
+./start-macos.sh
+```
 Check live logs to confirm runners are connected and `Listening for Jobs`:
 ```bash
 docker compose -f compose.generated.yaml logs -f
+```
+For native macOS runners:
+```bash
+tail -f .runner-macos/logs/*.log
 ```
 
 To stop all runners:
@@ -137,6 +177,10 @@ On Windows PowerShell:
 ```powershell
 .\stop.ps1
 ```
+On macOS:
+```bash
+./stop-macos.sh
+```
 
 ### 4. Update Target Repository Workflows
 In the target repository (e.g. `your-repo/.github/workflows/*.yml`), switch jobs to target self-hosted runners:
@@ -145,6 +189,11 @@ runs-on: [self-hosted, linux, x64]
 # or simply:
 runs-on: self-hosted
 ```
+For a native macOS entry with the example custom `native-macos` label:
+```yaml
+runs-on: [self-hosted, macOS, native-macos]
+```
+Add `ARM64` or `x64` only when the workflow must target that exact architecture.
 
 > [!WARNING]
 > **Do not use "Re-run" on old failed workflow runs:**
@@ -170,6 +219,8 @@ Current runner version: '2.336.0'
 YYYY-MM-DD HH:MM:SSZ: Listening for Jobs
 ```
 When you see **`Listening for Jobs`**, the runner is authenticated and standing by for CI jobs.
+The macOS supervisor instead writes `runner-… is ready for one job` to its local
+launchd log before the native runner starts listening.
 
 ### 2. GitHub Web UI (Repository Settings)
 Navigate to your target repository settings in a browser:

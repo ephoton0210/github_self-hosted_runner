@@ -51,3 +51,30 @@ jobs:
         run: |
           echo "GH_PAT=dummy-for-ci-validation-only" > .env
           docker compose -f compose.generated.yaml config >/dev/null
+
+  render-macos-launchd:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.x"
+      - run: pip install -r requirements.txt
+      - name: Render launchd agents from the example macOS config
+        run: |
+          cp config/repos.yaml.example config/repos.yaml
+          python3 scripts/render-macos-launchd.py
+      - name: Validate generated launchd plists
+        run: |
+          python3 - <<'PY'
+          import pathlib
+          import plistlib
+
+          paths = list(pathlib.Path(".runner-macos/launchd").glob("*.plist"))
+          assert len(paths) == 1, paths
+          plist = plistlib.loads(paths[0].read_bytes())
+          assert plist["Label"].startswith("com.github-self-hosted-runner.")
+          assert plist["KeepAlive"] is True
+          assert plist["RunAtLoad"] is True
+          assert plist["ProgramArguments"][1].endswith("macos-runner-loop.sh")
+          PY
