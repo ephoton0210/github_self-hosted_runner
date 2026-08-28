@@ -120,7 +120,7 @@ repo ownership from a personal account into an org is a real structural change
 permissions) that deserves to happen deliberately, after Phase 1 has proven the
 runner mechanics work. See [04_ROADMAP.md](04_ROADMAP.md) for sequencing.
 
-## Job execution: Linux containers vs native macOS
+## Job execution: Linux containers vs native macOS vs native Windows
 
 Linux runners use **ephemeral, containerized runners** (one container = one job,
 then destroyed) rather than long-lived bare-metal installs. Rationale:
@@ -140,3 +140,18 @@ agent per replica. Each agent downloads a pinned, verified macOS runner archive,
 registers it as `--ephemeral`, runs one job, removes its runner and work directory,
 and repeats. The host account is therefore the execution boundary: use a dedicated
 macOS account and never schedule untrusted/public PR code there.
+
+The same reasoning applies to native Windows tooling that a Linux container cannot
+supply (MSBuild against the full .NET Framework, Windows-only SDKs, Windows service
+integration tests). A repo entry's optional `windows:` fleet mirrors the macOS
+mechanism exactly, substituting the platform's native supervisor: `start-windows.ps1`
+renders one Windows Scheduled Task per replica (a Task Scheduler logon trigger
+standing in for `launchd`'s `KeepAlive`), each running `windows-runner-loop.ps1`,
+which downloads a pinned, verified Windows runner archive, registers it as
+`--ephemeral`, runs one job, removes its runner and work directory, and repeats. As
+with macOS, the logged-in Windows account is the execution boundary — use a
+dedicated, non-administrator account and never schedule untrusted/public PR code
+there. This is separate from the "Windows host requirements" note in
+[02_DEPLOYMENT_DESIGN.md](02_DEPLOYMENT_DESIGN.md): a Windows *host* can still run
+the Linux container fleet via Docker Desktop for `linux` labels, run a native
+`windows:` fleet for `Windows` labels, or both at once.

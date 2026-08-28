@@ -38,6 +38,14 @@ cannot undo changes a job makes elsewhere in that user's account, Keychain, or t
 host. Use a dedicated, non-administrator macOS account with only the signing keys,
 certificates, and toolchains required by these trusted private workflows.
 
+The native Windows implementation applies the same one-job lifecycle and the same
+caveat: it is not a sandbox. Workflow processes run directly as the account the
+Scheduled Task's logon trigger runs under. It removes the expanded runner and
+`_work` directories between jobs; it cannot undo changes a job makes elsewhere on
+that account or the host. Use a dedicated, non-administrator Windows account
+(`LogonType: InteractiveToken`, `RunLevel: LeastPrivilege` in the rendered task)
+with only the SDKs and toolchains required by these trusted private workflows.
+
 ## Docker socket exposure (DooD) is host-level trust, not sandboxing
 
 The chosen DooD approach (mounting `/var/run/docker.sock`) means any job on this
@@ -84,6 +92,10 @@ guessed upfront.
   `scripts/macos-runner-loop.sh`; bumped in the same change after verifying the
   official release checksums. Its automatic updater stays disabled so a known
   archive is what launches.
+- Native Windows runner version and SHA-256 pinned explicitly in
+  `scripts/windows-runner-loop.ps1`; bumped in the same change after verifying the
+  official release checksums. Its automatic updater stays disabled (`--disableupdate`)
+  so a known archive is what launches.
 - Base OS image patched on the same cadence.
 - Any CVE affecting the pinned runner version is an out-of-band bump, not held for
   the monthly cycle.

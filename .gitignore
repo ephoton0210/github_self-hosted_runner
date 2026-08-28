@@ -9,5 +9,9 @@ compose.generated.yaml
 # one-job runner directories. This stays local for the same reason as .env.
 .runner-macos/
 
+# Native Windows runner state: Scheduled Task XML, logs, downloaded archives,
+# and one-job runner directories. This stays local for the same reason as .env.
+.runner-windows/
+
 __pycache__/
 *.pyc

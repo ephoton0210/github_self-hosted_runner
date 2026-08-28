@@ -16,29 +16,34 @@ scaffolded — see [`development/`](development/) for the full plan and
 | [`start.sh`](start.sh) / [`start.ps1`](start.ps1) | One-command launcher for Linux containers from Bash / PowerShell |
 | [`stop.sh`](stop.sh) / [`stop.ps1`](stop.ps1) | Gracefully shuts down Linux runner containers from Bash / PowerShell |
 | [`start-macos.sh`](start-macos.sh) / [`stop-macos.sh`](stop-macos.sh) | Installs/removes native macOS launchd runner agents |
+| [`start-windows.ps1`](start-windows.ps1) / [`stop-windows.ps1`](stop-windows.ps1) | Registers/removes native Windows Scheduled Task runner agents |
 | [`.gitattributes`](.gitattributes) | Preserves LF line endings for Linux container sources on Windows checkouts |
 | [`docker/runner/Dockerfile`](docker/runner/Dockerfile) | Runner image: pinned `actions/runner` + `docker` CLI (DooD) |
 | [`scripts/register-runner.sh`](scripts/register-runner.sh) | Container entrypoint — mints a registration token, runs one ephemeral job, exits |
 | [`scripts/render-compose.py`](scripts/render-compose.py) | Renders `config/repos.yaml` into `compose.generated.yaml` |
 | [`scripts/render-macos-launchd.py`](scripts/render-macos-launchd.py) | Renders optional `macos:` entries into local launchd agent plists |
 | [`scripts/macos-runner-loop.sh`](scripts/macos-runner-loop.sh) | Native macOS one-job runner supervisor, download verifier, and cleanup loop |
+| [`scripts/render-windows-scheduled-task.py`](scripts/render-windows-scheduled-task.py) | Renders optional `windows:` entries into local Scheduled Task XML |
+| [`scripts/windows-runner-loop.ps1`](scripts/windows-runner-loop.ps1) | Native Windows one-job runner supervisor, download verifier, and cleanup loop |
 | [`config/repos.yaml.example`](config/repos.yaml.example) | Template for the declarative repo list — copy to `config/repos.yaml` (gitignored) and fill in real values |
 
 ## Runner Environment & OS Specifications
 
 The Linux runner container matches GitHub's official `ubuntu-latest` environment.
-The optional macOS route uses native macOS processes because a Linux container
-cannot execute macOS workflows:
+The optional macOS and Windows routes use native processes because a Linux
+container cannot execute macOS or Windows-native workflows:
 
 | Specification | Details |
 |---|---|
 | **Linux runner OS** | **Ubuntu 24.04 LTS (`noble`)**, 64-bit x86 (`x64`) — matches GitHub-hosted `ubuntu-latest` |
 | **macOS runner OS** | Native macOS 11+ on the host's architecture (`ARM64` on Apple silicon, `x64` on Intel) |
-| **Runner Runtime** | Official GitHub Actions Runner runtime (pinned version in [`Dockerfile`](docker/runner/Dockerfile)) |
+| **Windows runner OS** | Native Windows 10/11 or Windows Server on the host's architecture (`x64` or `ARM64`) |
+| **Runner Runtime** | Official GitHub Actions Runner runtime (pinned version in [`Dockerfile`](docker/runner/Dockerfile), [`macos-runner-loop.sh`](scripts/macos-runner-loop.sh), and [`windows-runner-loop.ps1`](scripts/windows-runner-loop.ps1)) |
 | **Linux pre-installed tooling** | `docker-ce-cli`, `git`, `curl`, `jq`, `ca-certificates`, `gnupg` |
 | **Docker Support** | **DooD (Docker-outside-of-Docker)** via host `/var/run/docker.sock` bind mount |
 | **Build Caching** | Reuses host Docker layer cache across jobs (resulting in faster container builds) |
 | **macOS lifecycle** | User-level `launchd` agents each provision a verified, native, ephemeral runner for one job, then erase its runner/work directory |
+| **Windows lifecycle** | User-level Scheduled Tasks each provision a verified, native, ephemeral runner for one job, then erase its runner/work directory |
 
 
 ## GitHub PAT Permission Requirements
@@ -87,9 +92,10 @@ The macOS supervisor disables automatic runner updates so its downloaded archive
 remains reproducible and SHA-256 verified. Update the pinned version and checksum
 together during the monthly runner update in [03_SECURITY.md](development/03_SECURITY.md).
 
-### Windows host requirements
+### Windows host requirements (Linux container fleet)
 
-The runners remain **Linux containers** even when the host is Windows. Install
+For `runs-on: [self-hosted, linux, ...]` jobs, the runners remain **Linux
+containers** even when the host is Windows. Install
 [Docker Desktop](https://www.docker.com/products/docker-desktop/) and make sure it
 is running in **Linux containers** mode (the default). Docker Desktop provides the
 Linux Docker engine and forwards its Docker socket into the runner containers, so
@@ -108,6 +114,44 @@ py -3 -m pip install -r requirements.txt
 > VM. Only use this fleet for trusted workflows from private repositories; the same
 > security restrictions in [03_SECURITY.md](development/03_SECURITY.md) apply on
 > Windows.
+
+These are still Linux containers, not native Windows runners. To keep them easy to
+tell apart in `docker compose ps` and in the GitHub runners list, `render-compose.py`
+runs on the host at start time and defaults the runner name to a `-windows-docker`
+suffix (e.g. `runner-repo-a-windows-docker-1`) whenever the host is Windows, versus
+plain `runner-repo-a-1` on a Linux host — set `runner_name_prefix` in
+`config/repos.yaml` to override it. See [`config/repos.yaml.example`](config/repos.yaml.example).
+
+### Windows host requirements (native Windows runners)
+
+Native Windows runners are for workflows that genuinely need Windows itself — for
+example MSBuild against the full .NET Framework, a Windows-only SDK, or a Windows
+service integration test — not just "any host running Docker Desktop." They are
+**not** Docker containers: jobs run as the currently logged-in Windows user, the
+same way the native macOS route runs jobs as a logged-in macOS user. Use a
+dedicated Windows account and only route trusted private-repository workflows to
+it.
+
+- Windows 10/11 or Windows Server, on either x64 or ARM64. `start-windows.ps1`
+  selects the matching official runner archive automatically.
+- [PowerShell 7+](https://aka.ms/powershell) (`pwsh.exe`) — the generated Scheduled
+  Task runs `windows-runner-loop.ps1` under `pwsh`, not the in-box Windows
+  PowerShell 5.1.
+- A logged-in user session for the account the Scheduled Task's logon trigger runs
+  as. The launcher registers user-level Scheduled Tasks; run it from an elevated
+  prompt only if your environment requires elevation to register tasks, not as a
+  way to run jobs as an administrator.
+- Python 3 with PyYAML (`py -3 -m pip install -r requirements.txt`), plus the
+  built-in `Expand-Archive`, `Get-FileHash`, and Task Scheduler (`schtasks` /
+  `ScheduledTasks` module) commands.
+- Visual Studio Build Tools and any platform-specific toolchains required by the
+  target workflows. Docker Desktop is optional and only needed by Windows jobs
+  that invoke `docker`.
+
+The Windows supervisor disables automatic runner updates so its downloaded archive
+remains reproducible and SHA-256 verified. Update the pinned version and checksum
+together during the monthly runner update in
+[03_SECURITY.md](development/03_SECURITY.md).
 
 ### 1. Configure Credentials
 Copy `.env.example` to `.env` and fill in your Fine-grained PAT:
@@ -146,6 +190,12 @@ repos:
       labels: [native-macos]
       runner_name_prefix: runner-repo-a-macos-host-a
       replicas: 1
+    # Optional native Windows runners for this same repo. GitHub adds the
+    # standard self-hosted, Windows, and X64/ARM64 labels automatically.
+    windows:
+      labels: [native-windows]
+      runner_name_prefix: runner-repo-a-windows-host-a
+      replicas: 1
 ```
 
 ### 3. Start Runners
@@ -160,6 +210,10 @@ On macOS, start only the optional `macos:` runner entries:
 ```bash
 ./start-macos.sh
 ```
+On Windows PowerShell, start only the optional `windows:` runner entries:
+```powershell
+.\start-windows.ps1
+```
 Check live logs to confirm runners are connected and `Listening for Jobs`:
 ```bash
 docker compose -f compose.generated.yaml logs -f
@@ -167,6 +221,10 @@ docker compose -f compose.generated.yaml logs -f
 For native macOS runners:
 ```bash
 tail -f .runner-macos/logs/*.log
+```
+For native Windows runners:
+```powershell
+Get-ScheduledTask -TaskPath '\GitHubSelfHostedRunner\'
 ```
 
 To stop all runners:
@@ -181,6 +239,10 @@ On macOS:
 ```bash
 ./stop-macos.sh
 ```
+For native Windows runners, on Windows PowerShell:
+```powershell
+.\stop-windows.ps1
+```
 
 ### 4. Update Target Repository Workflows
 In the target repository (e.g. `your-repo/.github/workflows/*.yml`), switch jobs to target self-hosted runners:
@@ -192,6 +254,10 @@ runs-on: self-hosted
 For a native macOS entry with the example custom `native-macos` label:
 ```yaml
 runs-on: [self-hosted, macOS, native-macos]
+```
+For a native Windows entry with the example custom `native-windows` label:
+```yaml
+runs-on: [self-hosted, Windows, native-windows]
 ```
 Add `ARM64` or `x64` only when the workflow must target that exact architecture.
 
@@ -219,8 +285,8 @@ Current runner version: '2.336.0'
 YYYY-MM-DD HH:MM:SSZ: Listening for Jobs
 ```
 When you see **`Listening for Jobs`**, the runner is authenticated and standing by for CI jobs.
-The macOS supervisor instead writes `runner-… is ready for one job` to its local
-launchd log before the native runner starts listening.
+The macOS and Windows supervisors instead write `... is ready for one job` to
+their local log before the native runner starts listening.
 
 ### 2. GitHub Web UI (Repository Settings)
 Navigate to your target repository settings in a browser:

@@ -9,6 +9,7 @@ Usage: scripts/render-compose.py [repos.yaml] [-o compose.generated.yaml]
 """
 import argparse
 import pathlib
+import platform
 import sys
 
 import yaml
@@ -20,17 +21,28 @@ GENERATED_HEADER = (
 )
 
 
-def render(repos_config):
+def default_name_prefix(repo: str, *, host_is_windows: bool) -> str:
+    # These are still Linux containers on a Windows host (Docker Desktop), not
+    # native Windows runners — the "-windows-docker" suffix keeps them visibly
+    # distinct, in both `docker compose ps` and the GitHub runners list, from
+    # both a Linux-host fleet for the same repo and a native `windows:` fleet
+    # (which defaults to a "-windows" suffix; see render-windows-scheduled-task.py).
+    suffix = "-windows-docker" if host_is_windows else ""
+    return f"runner-{repo.lower()}{suffix}"
+
+
+def render(repos_config, *, host_is_windows: bool = platform.system() == "Windows"):
     services = {}
     for entry in repos_config["repos"]:
         owner = entry["owner"]
         repo = entry["repo"]
         labels = entry["labels"]
         replicas = entry.get("replicas", 1)
-        runner_name_prefix = entry.get("runner_name_prefix", f"runner-{repo.lower()}")
+        default_prefix = default_name_prefix(repo, host_is_windows=host_is_windows)
+        runner_name_prefix = entry.get("runner_name_prefix", default_prefix)
 
         for i in range(1, replicas + 1):
-            service_name = f"runner-{repo.lower()}-{i}"
+            service_name = f"{default_prefix}-{i}"
             runner_name = f"{runner_name_prefix}-{i}"
             services[service_name] = {
                 "build": {

@@ -2,16 +2,27 @@
 
 ## Host requirements
 
-- Linux x86_64, or Windows x86_64 with Docker Desktop configured for **Linux
+- Linux x86_64, or Windows x86_64/ARM64 with Docker Desktop configured for **Linux
   containers**. The runner image and jobs are Linux (`ubuntu-latest`-compatible),
-  so Windows containers are not supported in v1.
+  so Windows containers are not supported for this fleet — see "Native Windows
+  runners" below for jobs that need Windows itself, not a Linux container on a
+  Windows host.
 - Or macOS 11+ on Apple silicon or Intel for workflows that need native Apple
   tooling. macOS jobs run as a user-level launchd agent, not in a Linux container.
+- Or Windows x86_64/ARM64 for workflows that need native Windows tooling a Linux
+  container cannot supply. Windows jobs run under a Windows Scheduled Task as the
+  logged-in user, not in a container; this is independent of, and can run
+  alongside, the Docker Desktop Linux-container path above.
 - Docker Engine (Linux) or Docker Desktop (Windows), plus the `docker compose`
-  plugin. Docker Desktop's Linux VM supplies the Docker socket mounted into the
-  runner containers.
+  plugin, for the Linux container fleet. Docker Desktop's Linux VM supplies the
+  Docker socket mounted into the runner containers. Not required for a
+  Windows-only `windows:` fleet.
 - Python 3 with PyYAML (`python3 -m pip install -r requirements.txt` on Linux,
-  `py -3 -m pip install -r requirements.txt` on Windows) to render Compose.
+  `py -3 -m pip install -r requirements.txt` on Windows) to render Compose or the
+  native macOS/Windows agent configuration.
+- PowerShell 7+ (`pwsh.exe`) on the Windows host, for a native `windows:` fleet —
+  the Scheduled Task runs `windows-runner-loop.ps1` under `pwsh.exe`, not the
+  Windows PowerShell 5.1 that ships in-box.
 - A checkout that preserves LF line endings for Linux-executed sources. The
   repository's `.gitattributes` enforces this for shell scripts, the Dockerfile,
   and Python renderer on Windows.
@@ -67,6 +78,41 @@ GitHub automatically adds `self-hosted`, `macOS`, and `ARM64`/`x64` labels. The
 should use `runs-on: [self-hosted, macOS, native-macos]`. Do not add a `macos:` mapping to
 a public repository or to any repository where untrusted pull requests can execute.
 
+## Native Windows runners
+
+An optional `windows:` mapping on an entry in `config/repos.yaml` creates a
+separate native fleet for that repository, mirroring the `macos:` mechanism above:
+
+```
+  - owner: <account>
+    repo: dotnet-app
+    labels: [self-hosted, linux, x64]
+    replicas: 1
+    windows:
+      labels: [native-windows]    # additional, custom routing label
+      runner_name_prefix: runner-dotnet-app-windows-host-a
+      replicas: 1
+```
+
+`start-windows.ps1` invokes `scripts/render-windows-scheduled-task.py`, then
+registers the generated Scheduled Tasks under the `\GitHubSelfHostedRunner\` task
+folder and starts them. Task Scheduler's logon trigger plus a restart-on-failure
+policy stand in for `launchd`'s `KeepAlive`. The existing repo-level PAT is read
+from `.env` at runner-loop start time, never placed in the task XML. Every task
+runs `windows-runner-loop.ps1` under `pwsh.exe`, which verifies the pinned official
+archive's SHA-256, expands a fresh runner directory, registers it with
+`--ephemeral --disableupdate`, and erases that directory after its one job.
+Stopping is cooperative: `stop-windows.ps1` (and a `start-windows.ps1` re-run that
+drops a replica) drops a `stop.flag` file the loop polls for between and during
+jobs, then unregisters the task once it reports non-`Running`. The cached archive
+and local logs stay under `.runner-windows\`, which is gitignored.
+
+GitHub automatically adds `self-hosted`, `Windows`, and `X64`/`ARM64` labels. The
+`windows.labels` list supplies extra custom labels only; in the example, workflows
+should use `runs-on: [self-hosted, Windows, native-windows]`. Do not add a
+`windows:` mapping to a public repository or to any repository where untrusted pull
+requests can execute.
+
 ## Docker-in-Docker vs Docker-outside-of-Docker
 
 Most target repos' workflows use `docker/build-push-action` and
@@ -113,6 +159,17 @@ a repo is a 3-line YAML edit + `docker compose up -d`, not a manual runbook.
 `runner_name_prefix` is optional; use it when another fleet may leave a GitHub
 runner session with the default name. It changes only the GitHub-visible runner
 name, not the Compose service name or number of replicas.
+
+Because `render-compose.py` runs on the actual host at `start.sh`/`start.ps1` time,
+it detects that host's OS and, when neither `runner_name_prefix` is set, names both
+the Compose service and the default GitHub-visible runner with a `-windows-docker`
+suffix on a Windows host (Docker Desktop) — e.g. `runner-repo-a-windows-docker-1` —
+versus the plain `runner-repo-a-1` on a Linux host. This is still the same Linux
+container image and mechanism either way; the suffix exists only so a repo served
+by both a Linux host and a Windows-Docker-Desktop host doesn't show two
+identically-named runners in the GitHub UI, and so the Windows-hosted Linux
+containers aren't confused at a glance with a native `windows:` fleet for the same
+repo (which defaults to a `-windows` suffix instead).
 
 ## Registration-token lifecycle
 

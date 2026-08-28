@@ -29,14 +29,18 @@ Work items:
 4. ~~Native macOS extension — optional per-repo `macos:` configuration, launchd
    renderer, SHA-256-verified runner archive, and one-job supervisor.~~ done —
    requires a real macOS host and trusted target repo for end-to-end validation.
-5. Point the first target repo's heaviest workflow jobs (e.g. Docker-image build
+5. ~~Native Windows extension — optional per-repo `windows:` configuration,
+   Scheduled Task renderer, SHA-256-verified runner archive, and one-job
+   supervisor.~~ done — requires a real Windows host and trusted target repo for
+   end-to-end validation.
+6. Point the first target repo's heaviest workflow jobs (e.g. Docker-image build
    jobs) at `runs-on: [self-hosted, linux, x64, docker]`; leave lightweight
    typecheck/lint jobs on `ubuntu-latest` initially to de-risk the cutover.
-6. Validate end-to-end on a real PR: checks appear normally, logs stream, registry
+7. Validate end-to-end on a real PR: checks appear normally, logs stream, registry
    push still works from the runner's Docker context.
-7. Size `replicas:` per repo against observed concurrency (a multi-way job fan-out
+8. Size `replicas:` per repo against observed concurrency (a multi-way job fan-out
    on a real PR is the concrete baseline to size against).
-8. Run for 2–4 weeks alongside GitHub-hosted as a fallback; confirm zero
+9. Run for 2–4 weeks alongside GitHub-hosted as a fallback; confirm zero
    GitHub-hosted minutes consumed for migrated jobs via the Billing → Metered usage
    page.
 
@@ -86,5 +90,3 @@ Not scheduled. Trigger conditions to revisit:
 
 - General-purpose CI platform features unrelated to the minutes problem.
 - GHCR storage/bandwidth quota management — separate problem, separate quota.
-- Native Windows runners. Windows Docker Desktop hosts remain supported for the
-  Linux container fleet; a native Windows runner remains out of scope.

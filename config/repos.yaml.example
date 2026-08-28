@@ -9,6 +9,11 @@ repos:
     repo: repo-a
     labels: [self-hosted, linux, x64, docker]
     # Optional: use a host-specific prefix when multiple fleets serve one repo.
+    # Left unset, scripts/render-compose.py already tells hosts apart by OS: a
+    # Windows host (Docker Desktop) defaults to a "-windows-docker" suffix so it
+    # stays visibly distinct, in `docker compose ps` and the GitHub runners
+    # list, from a Linux-host fleet for the same repo and from a native
+    # `windows:` fleet below (which defaults to "-windows").
     # runner_name_prefix: runner-repo-a-host-a
     replicas: 2  # match observed concurrency, e.g. a multi-way job fan-out
     # Optional native macOS fleet for workflows that require macOS. The runner
@@ -17,6 +22,15 @@ repos:
     macos:
       labels: [native-macos]
       # runner_name_prefix: runner-repo-a-macos-host-a
+      replicas: 1
+    # Optional native Windows fleet for workflows that need Windows outside a
+    # Linux container (e.g. MSBuild, a Windows-only SDK). The runner receives
+    # self-hosted, Windows, and AMD64/ARM64 labels automatically; these are
+    # additional routing labels. Start it with ./start-windows.ps1 on a
+    # Windows host.
+    windows:
+      labels: [native-windows]
+      # runner_name_prefix: runner-repo-a-windows-host-a
       replicas: 1
   - owner: <account>
     repo: repo-b
