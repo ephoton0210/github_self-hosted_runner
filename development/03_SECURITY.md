@@ -88,6 +88,19 @@ network its `--host` is reachable from, not just the aggregating host's. Only
 configure peers on a network you'd already trust with `--host 0.0.0.0`
 directly — `--peer` does not add its own authentication on top of that.
 
+`POST /api/register` (for `--register-to`) is unauthenticated for the same
+reason the rest of the dashboard is: it's a convenience layered on top of a
+trust boundary that already has to hold (a non-loopback `--host` bind), not a
+new one. Anyone who can already reach a `--host 0.0.0.0` dashboard could get
+the same effect by hand-configuring `--peer` against any URL they choose — a
+forged registration doesn't grant a new capability, only saves that person
+retyping it, and the target URL still only gets **fetched from** (its
+`/api/status`/`/api/logs`), never sent a command. The one thing it does add is
+an outbound-request primitive: a forged registration makes this dashboard
+periodically `GET <attacker-controlled-url>`, so treat that the same as any
+other trusted-network-only surface — don't expose `--host 0.0.0.0` (and by
+extension `/api/register`) to a network with untrusted peers on it.
+
 ## Network egress
 
 Host firewall should allow-list only what's needed: `github.com`,

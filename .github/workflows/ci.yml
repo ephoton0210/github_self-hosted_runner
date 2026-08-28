@@ -147,6 +147,12 @@ jobs:
           code=$(curl -s -o /dev/null -w '%{http_code}' \
             http://127.0.0.1:8787/nope)
           test "$code" = "404"
+          reg_code=$(curl -s -o /dev/null -w '%{http_code}' \
+            -X POST http://127.0.0.1:8787/api/register \
+            -d '{"label":"peer","url":"http://127.0.0.1:9"}')
+          test "$reg_code" = "200"
+          curl -sf http://127.0.0.1:8787/api/fleet \
+            | grep -q '"peer"'
       - name: Stop the dashboard
         if: always()
         run: kill "$(cat dashboard.pid)" 2>/dev/null || true

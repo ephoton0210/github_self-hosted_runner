@@ -6,9 +6,50 @@ Windows Scheduled Tasks — never the GitHub API. It shows what start.sh /
 start-macos.sh / start-windows.ps1 actually started on *this* host: which
 runners exist, whether each is idle, running a job, starting up, or stopped,
 and a tail of each runner's own log. A repo's fleet may span multiple hosts;
-each host's dashboard only sees its own.
+by default each host's dashboard only sees its own — use --peer (static) or
+--register-to/--advertise-url (a satellite self-registers with a central
+dashboard) to merge others in. Either way this stays read-only in both
+directions: a merged host is only ever fetched from, never sent a command.
 
 Usage: scripts/dashboard.py [--host 127.0.0.1] [--port 8787]
+
+
+FUNCTION OVERVIEW (file order — search for a name to jump to it)
+
+  Helpers
+    infer_state(lines)                 -> (state, detail) from a runner's own log markers
+    tail_lines(path, count)            -> last `count` lines of a file, or [] if missing
+    run(cmd)                           -> stdout, or None on any failure (never raises)
+
+  Host-level resource usage
+    collect_host_resources()           -> this host's CPU load / memory (stdlib+CLI, no psutil)
+    collect_docker_stats()             -> per-container CPU%/mem, from `docker stats`
+
+  Per-fleet-type collectors — each returns {"available", "reason"?, "runners": [...]}
+    collect_docker_runners()           -> Linux container fleet (Docker / Docker Desktop)
+    collect_macos_runners()            -> native macOS fleet (launchd)
+    parse_windows_task_args(args)      -> Owner/Repo/RunnerName out of a Scheduled Task's <Arguments>
+    collect_windows_runners()          -> native Windows fleet (Scheduled Tasks)
+
+  This host's own status (GET /api/status)
+    build_status()                     -> {host, os, resources, sections} — local only
+    fetch_log(id, tail)                -> local log tail for one runner ("kind:name" id)
+
+  Multi-host fleet aggregation (GET /api/fleet, GET /api/logs, POST /api/register)
+    qualify_runner_ids(sections, label) -> rewrites ids to "label::kind:name" in place
+    all_peers()                        -> live peers: static --peer + fresh self-registrations
+    register_peer(label, url)          -> validates and stores a POST /api/register
+    fetch_peer_status(label, url)      -> one host entry for build_fleet() (never raises)
+    build_fleet()                      -> self + all_peers(), each host-qualified
+    fetch_log_routed(id, tail)         -> routes a (possibly host-qualified) id, local or proxied
+
+  INDEX_HTML — the served page: inline CSS, then JS that polls /api/fleet (patches rows
+  in place, only rebuilds on a structural change) and /api/logs (appends new lines only)
+
+  HTTP server
+    DashboardHandler.do_GET/do_POST    -> routes /, /api/status, /api/fleet, /api/logs, /api/register
+    registration_loop(targets, ...)    -> background --register-to heartbeat thread
+    main()                             -> CLI entrypoint; see --help for every flag
 """
 from __future__ import annotations
 
@@ -20,6 +61,8 @@ import plistlib
 import re
 import subprocess
 import sys
+import threading
+import time
 from datetime import datetime, timezone
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
@@ -33,7 +76,13 @@ import yaml
 # Set from --label / --peer in main() before the server starts; read-only
 # thereafter, so concurrent request handlers can read them without locking.
 SELF_LABEL = platform.node()
-PEERS: dict[str, str] = {}
+PEERS: dict[str, str] = {}  # static, from --peer — never expires
+
+# Dynamic, from POST /api/register (see "Self-registration" below) — mutated
+# from request-handler threads, so every read/write goes through _peers_lock.
+DYNAMIC_PEERS: dict[str, dict] = {}  # label -> {"url": str, "last_seen": monotonic float}
+DYNAMIC_PEER_TTL = 90  # seconds; ~4-5 missed heartbeats at the default 20s interval
+_peers_lock = threading.Lock()
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 COMPOSE_FILE = PROJECT_ROOT / "compose.generated.yaml"
@@ -463,16 +512,53 @@ def fetch_log(runner_id: str, tail: int) -> list[str]:
 #
 # Each dashboard instance is still the sole source of truth for its own host
 # (everything above this point is unchanged local-only logic, and /api/status
-# keeps returning exactly that). --peer just means: also fetch that plain
+# keeps returning exactly that). A peer just means: also fetch that plain
 # /api/status from other hosts' dashboard instances and merge the results —
 # no new central service, no new protocol, the peer is a normal client of the
-# exact same endpoint a browser would hit.
+# exact same endpoint a browser would hit. This is read-only in both
+# directions: nothing here ever sends a peer a command, only requests its
+# already-local-only status.
+#
+# Two ways a peer gets into that list: statically via --peer LABEL=URL
+# (never expires, the operator typed it), or dynamically via a satellite
+# host's own --register-to POSTing itself to this instance's /api/register
+# (expires DYNAMIC_PEER_TTL seconds after its last heartbeat, so a host that
+# goes away — not just unreachable right now, actually decommissioned or
+# reconfigured — eventually drops out instead of showing up forever).
 
 
 def qualify_runner_ids(sections: dict, label: str) -> None:
     for section in sections.values():
         for runner in section.get("runners", []):
             runner["id"] = f"{label}::{runner['id']}"
+
+
+def all_peers() -> dict[str, str]:
+    now = time.monotonic()
+    with _peers_lock:
+        expired = [label for label, info in DYNAMIC_PEERS.items() if now - info["last_seen"] > DYNAMIC_PEER_TTL]
+        for label in expired:
+            del DYNAMIC_PEERS[label]
+        dynamic = {label: info["url"] for label, info in DYNAMIC_PEERS.items()}
+    # A statically-configured --peer always wins a label collision — it's an
+    # explicit operator choice, a self-registration is just a convenience.
+    return {**dynamic, **PEERS}
+
+
+def register_peer(label: object, url: object) -> tuple[bool, str]:
+    label = str(label).strip() if label else ""
+    url = str(url).strip().rstrip("/") if url else ""
+    if not label or not url:
+        return False, "label and url are required"
+    if not (url.startswith("http://") or url.startswith("https://")):
+        return False, "url must start with http:// or https://"
+    if label == SELF_LABEL:
+        return False, f"label {label!r} collides with this host's own --label"
+    if label in PEERS:
+        return False, f"label {label!r} is already a statically-configured --peer"
+    with _peers_lock:
+        DYNAMIC_PEERS[label] = {"url": url, "last_seen": time.monotonic()}
+    return True, "registered"
 
 
 def fetch_peer_status(label: str, url: str) -> dict:
@@ -510,7 +596,7 @@ def build_fleet() -> dict:
             "sections": local["sections"],
         }
     ]
-    for label, url in PEERS.items():
+    for label, url in all_peers().items():
         hosts.append(fetch_peer_status(label, url))
     return {"generated_at": datetime.now(timezone.utc).isoformat(), "hosts": hosts}
 
@@ -524,7 +610,7 @@ def fetch_log_routed(runner_id: str, tail: int) -> dict:
     if label == SELF_LABEL:
         return {"id": runner_id, "lines": fetch_log(remainder, tail)}
 
-    url = PEERS.get(label)
+    url = all_peers().get(label)
     if not url:
         return {"id": runner_id, "lines": [f"unknown host label: {label}"]}
     try:
@@ -853,6 +939,47 @@ class DashboardHandler(BaseHTTPRequestHandler):
         else:
             self._send_json({"error": "not found"}, status=404)
 
+    def do_POST(self) -> None:  # noqa: N802 - stdlib method name
+        parsed = urlparse(self.path)
+        if parsed.path != "/api/register":
+            self._send_json({"error": "not found"}, status=404)
+            return
+
+        try:
+            length = int(self.headers.get("Content-Length") or 0)
+            body = json.loads(self.rfile.read(length) or b"{}")
+        except (ValueError, json.JSONDecodeError):
+            self._send_json({"ok": False, "error": "invalid JSON body"}, status=400)
+            return
+
+        ok, message = register_peer(body.get("label"), body.get("url"))
+        self._send_json({"ok": ok, "error": None if ok else message}, status=200 if ok else 409)
+
+
+def registration_loop(targets: list[str], advertise_url: str, interval: float) -> None:
+    """Background heartbeat: POST this host's own label+URL to each central
+    dashboard in `targets` every `interval` seconds, so --register-to is a
+    "set it and forget it" alternative to the central dashboard's operator
+    hand-maintaining --peer for every satellite host. One missed heartbeat
+    just means one retry next tick — DYNAMIC_PEER_TTL on the receiving end is
+    what actually notices and expires a host that's gone for good.
+    """
+    payload = json.dumps({"label": SELF_LABEL, "url": advertise_url}).encode("utf-8")
+    while True:
+        for target in targets:
+            try:
+                request = Request(
+                    f"{target}/api/register",
+                    data=payload,
+                    method="POST",
+                    headers={"Content-Type": "application/json", "User-Agent": "runner-dashboard-register"},
+                )
+                with urlopen(request, timeout=5) as response:  # noqa: S310 - operator-supplied URL, trusted network
+                    response.read()
+            except (URLError, OSError, ValueError) as error:
+                print(f"Warning: could not register with {target}: {error}", file=sys.stderr)
+        time.sleep(interval)
+
 
 def main() -> None:
     global SELF_LABEL, PEERS
@@ -873,8 +1000,31 @@ def main() -> None:
         help="another host's dashboard to merge into /api/fleet and the page, "
         "e.g. --peer hostb=http://192.168.1.20:8787 (repeatable). That host "
         "must be reachable from here, so it needs --host set to something "
-        "other than loopback too — same trusted-network caveat as --host.",
+        "other than loopback too — same trusted-network caveat as --host. "
+        "For a fleet where satellite hosts come and go, --register-to on "
+        "each satellite is usually less upkeep than maintaining this by hand.",
     )
+    parser.add_argument(
+        "--register-to",
+        action="append",
+        default=[],
+        metavar="URL",
+        help="a central dashboard to self-register with (repeatable), e.g. "
+        "--register-to http://hosta.internal:8787. Requires --advertise-url. "
+        "This host shows up in that dashboard's /api/fleet automatically, "
+        "expiring DYNAMIC_PEER_TTL (90s) after this stops heartbeating.",
+    )
+    parser.add_argument(
+        "--advertise-url",
+        default=None,
+        metavar="URL",
+        help="URL other hosts should use to reach this dashboard, e.g. "
+        "http://hostb.internal:8787 — required with --register-to; not "
+        "auto-detected, since guessing the one reachable address among "
+        "hostnames/NICs is unreliable (same reasoning as --host being "
+        "explicit rather than auto-bound).",
+    )
+    parser.add_argument("--register-interval", type=float, default=20.0, help="seconds between heartbeats")
     args = parser.parse_args()
 
     if args.label:
@@ -887,6 +1037,8 @@ def main() -> None:
         if label == SELF_LABEL:
             parser.error(f"--peer label {label!r} collides with this host's own --label")
         PEERS[label] = url
+    if args.register_to and not args.advertise_url:
+        parser.error("--register-to requires --advertise-url")
 
     if args.host not in ("127.0.0.1", "localhost", "::1"):
         print(
@@ -898,7 +1050,14 @@ def main() -> None:
     server = ThreadingHTTPServer((args.host, args.port), DashboardHandler)
     print(f"Runner dashboard ({SELF_LABEL}): http://{args.host}:{args.port}  (Ctrl+C to stop)")
     if PEERS:
-        print(f"Peers: {', '.join(f'{label}={url}' for label, url in PEERS.items())}")
+        print(f"Static peers: {', '.join(f'{label}={url}' for label, url in PEERS.items())}")
+    if args.register_to:
+        print(f"Self-registering as {args.advertise_url!r} with: {', '.join(args.register_to)}")
+        threading.Thread(
+            target=registration_loop,
+            args=(args.register_to, args.advertise_url, args.register_interval),
+            daemon=True,
+        ).start()
     try:
         server.serve_forever()
     except KeyboardInterrupt:

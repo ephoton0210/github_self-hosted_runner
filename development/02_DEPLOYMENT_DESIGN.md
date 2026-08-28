@@ -235,8 +235,15 @@ one thing a peer dashboard actually calls on another host, so its shape
 can't change without breaking that. `/api/fleet` is the aggregating view: it
 always includes this host's own status (fetched the same way `/api/status`
 gets it, not cached) plus one `GET <peer-url>/api/status` per configured
-`--peer LABEL=URL`, each on its own short timeout so one unreachable peer
-degrades to an "Unreachable" block instead of failing the whole page. Runner
+`--peer LABEL=URL` (static, hand-configured) or live `POST /api/register`
+(dynamic, a satellite host's own `--register-to` heartbeating in every
+`--register-interval` seconds), each on its own short timeout so one
+unreachable peer degrades to an "Unreachable" block instead of failing the
+whole page. A dynamic registration expires `DYNAMIC_PEER_TTL` (90s) after its
+last heartbeat — `all_peers()` prunes expired entries on every call rather
+than on a separate timer, so there's no background thread to leak — and a
+static `--peer` always wins a label collision, since it's an explicit
+operator choice rather than a convenience default. Runner
 `id`s coming out of `/api/fleet` are rewritten to `LABEL::<original-id>`
 (self included) so `/api/logs?id=...` can route: a `SELF_LABEL::` prefix is
 handled locally, any other configured peer's is proxied to that peer's own

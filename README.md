@@ -356,6 +356,29 @@ below, now transitively true for every peer). An unreachable peer shows up as
 an "Unreachable" host block with the underlying error, rather than breaking
 the rest of the page.
 
+For a fleet where hosts get added/removed over time, hand-maintaining `--peer`
+on one aggregating dashboard is extra upkeep. Each satellite host can instead
+self-register with a central dashboard:
+
+```bash
+# On Host B, registering itself with the central dashboard on Host A:
+./dashboard.sh --label hostb \
+  --register-to http://hosta.internal:8787 \
+  --advertise-url http://hostb.internal:8787
+```
+```powershell
+.\dashboard.ps1 -Label hostb `
+  -RegisterTo "http://hosta.internal:8787" `
+  -AdvertiseUrl "http://hostb.internal:8787"
+```
+
+Host B then shows up in Host A's `/api/fleet` automatically, no `--peer` edit
+needed on Host A. This is still read-only in both directions — a registered
+host is only ever polled for its status, never sent a command — and a
+registration expires 90 seconds after the last heartbeat, so a decommissioned
+host eventually drops off the page on its own instead of lingering as
+"Unreachable" forever.
+
 It binds to `127.0.0.1` by default, since runner logs can contain job output;
 pass `--host` to change that only on a trusted network.
 
