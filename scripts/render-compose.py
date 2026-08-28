@@ -60,7 +60,19 @@ def render(repos_config, *, host_is_windows: bool = platform.system() == "Window
                     "RUNNER_NAME": runner_name,
                     "RUNNER_LABELS": ",".join(labels),
                 },
-                "volumes": ["/var/run/docker.sock:/var/run/docker.sock"],
+                "volumes": [
+                    "/var/run/docker.sock:/var/run/docker.sock",
+                    # Host-shared docker/build-push-action `type=local` buildx
+                    # cache dir (see modelforge-build-check.yml's cache-from/
+                    # cache-to). Must be a real bind mount, not left implicit:
+                    # the buildx CLI performing local cache I/O runs inside
+                    # *this* runner container, not on the host, so without
+                    # this mount `/opt/buildx-cache` is just each replica's
+                    # own ephemeral container-local writable layer -- neither
+                    # shared between runner-<repo>-1/-2 nor durable across a
+                    # container recreate.
+                    "/opt/buildx-cache:/opt/buildx-cache",
+                ],
             }
 
     return {"services": services}
