@@ -140,6 +140,8 @@ jobs:
           curl -sf http://127.0.0.1:8787/ >/dev/null
           curl -sf http://127.0.0.1:8787/api/status \
             | python3 -m json.tool >/dev/null
+          curl -sf http://127.0.0.1:8787/api/fleet \
+            | python3 -m json.tool >/dev/null
           curl -sf "http://127.0.0.1:8787/api/logs?id=bogus" \
             | python3 -m json.tool >/dev/null
           code=$(curl -s -o /dev/null -w '%{http_code}' \

@@ -2,7 +2,12 @@
 [CmdletBinding()]
 param(
     [string]$BindHost = "127.0.0.1",
-    [int]$Port = 8787
+    [int]$Port = 8787,
+    # This host's name in a multi-host fleet view (default: hostname).
+    [string]$Label,
+    # Other hosts' dashboards to merge in, each "LABEL=URL"
+    # (e.g. -Peer "hostb=http://192.168.1.20:8787"); repeatable as an array.
+    [string[]]$Peer = @()
 )
 
 $ErrorActionPreference = "Stop"
@@ -30,4 +35,12 @@ if ($LASTEXITCODE -ne 0) {
     throw "PyYAML is required. Run: py -3 -m pip install -r requirements.txt"
 }
 
-& $pythonCommand.Path @($pythonCommand.Arguments) "scripts/dashboard.py" "--host" $BindHost "--port" $Port
+$dashboardArgs = @("scripts/dashboard.py", "--host", $BindHost, "--port", $Port)
+if ($Label) {
+    $dashboardArgs += @("--label", $Label)
+}
+foreach ($p in $Peer) {
+    $dashboardArgs += @("--peer", $p)
+}
+
+& $pythonCommand.Path @($pythonCommand.Arguments) @dashboardArgs

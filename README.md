@@ -309,10 +309,10 @@ When a workflow job with `runs-on: [self-hosted, ...]` is triggered:
 Runners run in the background, across up to three mechanisms per host (Docker
 Compose, macOS launchd, Windows Scheduled Tasks) — checking on all of them by
 hand means three different commands. `dashboard.sh` / `dashboard.ps1` starts a
-small local web server that shows, for every runner **on this host**: its repo,
-whether it's Idle / Running \<job\> / Starting / Stopped, and a live-tailing
-view of its own log — the same signals described in "How to Verify" above, in
-one page instead of three commands.
+small local web server that shows, for every runner: its repo, whether it's
+Idle / Running \<job\> / Starting / Stopped, live CPU/mem usage, and a
+live-tailing view of its own log — the same signals described in "How to
+Verify" above, in one page instead of three commands.
 
 ```bash
 ./dashboard.sh
@@ -322,15 +322,42 @@ On Windows PowerShell:
 .\dashboard.ps1
 ```
 Then open <http://127.0.0.1:8787>. Click a runner's row to open its log panel;
-both the runner table and an open log panel auto-refresh every few seconds.
+the runner table, an open log panel, and each host's CPU/mem summary all
+auto-refresh every few seconds.
 
-This reads only **local** state — `docker compose ps` / `docker logs`, launchd
-agent status, and Scheduled Task status plus each runner's own log file — never
-the GitHub API, so it needs no extra token or permissions, and it only shows
-runners started on the host it's running on (a repo's fleet spanning multiple
-hosts needs one dashboard per host). It binds to `127.0.0.1` by default, since
-runner logs can contain job output; pass `--host` to change that only on a
-trusted network.
+This reads only **local** state — `docker compose ps` / `docker logs` /
+`docker stats`, launchd agent status, and Scheduled Task status, plus each
+runner's own log file and this host's CPU load / memory — never the GitHub
+API, so it needs no extra token or permissions. Per-runner CPU/mem is exact
+for the Docker fleet (straight from `docker stats`); native macOS/Windows
+runners don't have per-process figures yet, only the host-level ones.
+
+### Viewing multiple hosts at once
+
+A repo's fleet can span multiple hosts (see "Can I run 2 replicas on Host A
+and 4 on Host B?" — [`02_DEPLOYMENT_DESIGN.md`](development/02_DEPLOYMENT_DESIGN.md)
+Declarative repo list). By default each host's dashboard only shows itself;
+pass `--peer LABEL=URL` (repeatable) to merge other hosts' dashboards into one
+page and one `/api/fleet` response:
+
+```bash
+# On Host A, showing itself plus Host B:
+./dashboard.sh --label hosta --peer hostb=http://hostb.internal:8787
+```
+```powershell
+.\dashboard.ps1 -Label hosta -Peer "hostb=http://hostb.internal:8787"
+```
+
+A peer is just a normal client of that other host's `/api/status` — there's no
+new central service, so **every peer's dashboard must itself be reachable
+from the aggregating host**, meaning that peer needs `--host` set to
+something other than the loopback default too (same trusted-network caveat as
+below, now transitively true for every peer). An unreachable peer shows up as
+an "Unreachable" host block with the underlying error, rather than breaking
+the rest of the page.
+
+It binds to `127.0.0.1` by default, since runner logs can contain job output;
+pass `--host` to change that only on a trusted network.
 
 ## Why
 

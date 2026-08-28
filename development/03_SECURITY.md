@@ -81,6 +81,13 @@ to the default loopback bind instead of widening the bind address. It never
 calls the GitHub API and never handles `GH_PAT`, so it carries no credential
 exposure of its own beyond the log content itself.
 
+`--peer LABEL=URL` widens this transitively: for the aggregating host to
+reach a peer, that peer must itself be bound to something other than
+loopback, which means every peer's runner logs are exposed to whatever
+network its `--host` is reachable from, not just the aggregating host's. Only
+configure peers on a network you'd already trust with `--host 0.0.0.0`
+directly — `--peer` does not add its own authentication on top of that.
+
 ## Network egress
 
 Host firewall should allow-list only what's needed: `github.com`,

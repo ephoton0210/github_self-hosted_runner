@@ -202,11 +202,11 @@ lands.
 `scripts/dashboard.py` (started via `dashboard.sh` / `dashboard.ps1`) is a
 single-file, stdlib-only Python HTTP server — no new dependency beyond the
 PyYAML already required for the renderers, no build step, no framework. It
-binds to `127.0.0.1:8787` by default and serves one HTML page plus two JSON
-endpoints (`/api/status`, `/api/logs`) that a small polling frontend hits
-every few seconds; there's no WebSocket/SSE layer, matching this project's
-bias toward the simplest mechanism that's still responsive enough for a CI
-runner's job cadence.
+binds to `127.0.0.1:8787` by default and serves one HTML page plus three JSON
+endpoints (`/api/status`, `/api/fleet`, `/api/logs`) that a small polling
+frontend hits every few seconds; there's no WebSocket/SSE layer, matching
+this project's bias toward the simplest mechanism that's still responsive
+enough for a CI runner's job cadence.
 
 It reads only state already local to the host it runs on, per fleet type:
 
@@ -228,10 +228,37 @@ own `.runner-windows/logs/<name>.log` — Task Scheduler has no equivalent of
 launchd's `StandardOutPath`, so without that the dashboard (and an operator
 tailing logs by hand) would have no Windows-native log to read at all.
 
-Explicitly out of scope for this dashboard (see [04_ROADMAP.md](04_ROADMAP.md)
-Phase 3): no GitHub API calls, so no job-queue-wait-time or utilization
-analytics; no cross-host aggregation — a repo's fleet spanning multiple hosts
-needs one dashboard instance per host, each showing only what that host runs.
+### Multi-host aggregation and resource usage
+
+`/api/status` stays local-only and unauthenticated-but-unprefixed — it is the
+one thing a peer dashboard actually calls on another host, so its shape
+can't change without breaking that. `/api/fleet` is the aggregating view: it
+always includes this host's own status (fetched the same way `/api/status`
+gets it, not cached) plus one `GET <peer-url>/api/status` per configured
+`--peer LABEL=URL`, each on its own short timeout so one unreachable peer
+degrades to an "Unreachable" block instead of failing the whole page. Runner
+`id`s coming out of `/api/fleet` are rewritten to `LABEL::<original-id>`
+(self included) so `/api/logs?id=...` can route: a `SELF_LABEL::` prefix is
+handled locally, any other configured peer's is proxied to that peer's own
+`/api/logs`, and an unrecognized label fails closed with an explicit error
+rather than silently reading nothing. There is still no new central service
+and no new protocol — a peer is just another HTTP client of the exact same
+endpoints a browser hits.
+
+This is deliberately still not GitHub-API-backed (see
+[04_ROADMAP.md](04_ROADMAP.md) Phase 3): no job-queue-wait-time or
+utilization-over-time analytics, just what's true on each host right now.
+
+Resource figures come from the cheapest accurate source per fleet type, not a
+new dependency (no `psutil`): `docker stats --no-stream --format json` gives
+exact per-container CPU%/mem for the Docker fleet; host-level CPU
+load/`os.cpu_count()` and memory (`/proc/meminfo` on Linux, `vm_stat`/`sysctl`
+on macOS, `wmic` on Windows) apply to every fleet type but aren't per-process.
+Native macOS/Windows runners don't have per-process figures yet — doing that
+right means resolving the launchd agent's or Scheduled Task's PID down to the
+actual `Runner.Listener` child it eventually spawns, which neither
+`macos-runner-loop.sh` nor `windows-runner-loop.ps1` currently tracks or
+exposes.
 
 ## What's explicitly deferred past v1
 
