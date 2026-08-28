@@ -90,21 +90,25 @@ jobs:
       - name: Render Scheduled Tasks from the example Windows config
         run: |
           cp config/repos.yaml.example config/repos.yaml
-          python3 scripts/render-windows-scheduled-task.py --user "TESTHOST\\ci-user"
+          python3 scripts/render-windows-scheduled-task.py \
+            --user "TESTHOST\\ci-user"
       - name: Validate generated Scheduled Task XML
         run: |
           python3 - <<'PY'
           import pathlib
           import xml.etree.ElementTree as ET
 
-          ns = {"t": "http://schemas.microsoft.com/windows/2004/02/mit/task"}
-          paths = list(pathlib.Path(".runner-windows/scheduled-tasks").glob("*.xml"))
+          ns_uri = "http://schemas.microsoft.com/windows/2004/02/mit/task"
+          ns = {"t": ns_uri}
+          task_dir = pathlib.Path(".runner-windows/scheduled-tasks")
+          paths = list(task_dir.glob("*.xml"))
           assert len(paths) == 1, paths
           root = ET.fromstring(paths[0].read_text(encoding="utf-8"))
-          assert root.tag == "{http://schemas.microsoft.com/windows/2004/02/mit/task}Task"
+          assert root.tag == f"{{{ns_uri}}}Task"
           exec_el = root.find("./t:Actions/t:Exec", ns)
           assert exec_el.find("t:Command", ns).text == "pwsh.exe"
-          assert "windows-runner-loop.ps1" in exec_el.find("t:Arguments", ns).text
+          args_text = exec_el.find("t:Arguments", ns).text
+          assert "windows-runner-loop.ps1" in args_text
           principal = root.find("./t:Principals/t:Principal", ns)
           assert principal.find("t:LogonType", ns).text == "InteractiveToken"
           assert principal.find("t:RunLevel", ns).text == "LeastPrivilege"
