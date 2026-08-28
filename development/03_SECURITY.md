@@ -70,6 +70,17 @@ to run here.
   beyond the registration PAT above.
 - No secret is ever baked into the runner image.
 
+## Monitoring dashboard exposure
+
+`scripts/dashboard.py` (see [02_DEPLOYMENT_DESIGN.md](02_DEPLOYMENT_DESIGN.md))
+serves runner logs over plain HTTP with no authentication, so it binds to
+`127.0.0.1` by default — logs can contain job/workflow output. Only pass
+`--host 0.0.0.0` (or a specific LAN address) on a trusted network; remote
+viewing should go through an SSH tunnel (`ssh -L 8787:localhost:8787 <host>`)
+to the default loopback bind instead of widening the bind address. It never
+calls the GitHub API and never handles `GH_PAT`, so it carries no credential
+exposure of its own beyond the log content itself.
+
 ## Network egress
 
 Host firewall should allow-list only what's needed: `github.com`,

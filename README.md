@@ -25,6 +25,8 @@ scaffolded — see [`development/`](development/) for the full plan and
 | [`scripts/macos-runner-loop.sh`](scripts/macos-runner-loop.sh) | Native macOS one-job runner supervisor, download verifier, and cleanup loop |
 | [`scripts/render-windows-scheduled-task.py`](scripts/render-windows-scheduled-task.py) | Renders optional `windows:` entries into local Scheduled Task XML |
 | [`scripts/windows-runner-loop.ps1`](scripts/windows-runner-loop.ps1) | Native Windows one-job runner supervisor, download verifier, and cleanup loop |
+| [`dashboard.sh`](dashboard.sh) / [`dashboard.ps1`](dashboard.ps1) | Starts the local status dashboard for this host's runner fleet |
+| [`scripts/dashboard.py`](scripts/dashboard.py) | Dashboard web server — reads local Docker/launchd/Scheduled Task state, no GitHub API calls |
 | [`config/repos.yaml.example`](config/repos.yaml.example) | Template for the declarative repo list — copy to `config/repos.yaml` (gitignored) and fill in real values |
 
 ## Runner Environment & OS Specifications
@@ -301,6 +303,34 @@ When a workflow job with `runs-on: [self-hosted, ...]` is triggered:
 - **GitHub UI**: The runner status changes from **`Idle`** to **`Active`**.
 - **Container Logs**: You will see `Running job: <job-name>` followed by step execution logs.
 - **Lifecycle**: Upon job completion, the container exits (`--ephemeral`), and Docker Compose automatically spins up a fresh container instance with a new registration token to wait for the next job.
+
+## Monitoring Dashboard
+
+Runners run in the background, across up to three mechanisms per host (Docker
+Compose, macOS launchd, Windows Scheduled Tasks) — checking on all of them by
+hand means three different commands. `dashboard.sh` / `dashboard.ps1` starts a
+small local web server that shows, for every runner **on this host**: its repo,
+whether it's Idle / Running \<job\> / Starting / Stopped, and a live-tailing
+view of its own log — the same signals described in "How to Verify" above, in
+one page instead of three commands.
+
+```bash
+./dashboard.sh
+```
+On Windows PowerShell:
+```powershell
+.\dashboard.ps1
+```
+Then open <http://127.0.0.1:8787>. Click a runner's row to open its log panel;
+both the runner table and an open log panel auto-refresh every few seconds.
+
+This reads only **local** state — `docker compose ps` / `docker logs`, launchd
+agent status, and Scheduled Task status plus each runner's own log file — never
+the GitHub API, so it needs no extra token or permissions, and it only shows
+runners started on the host it's running on (a repo's fleet spanning multiple
+hosts needs one dashboard per host). It binds to `127.0.0.1` by default, since
+runner logs can contain job output; pass `--host` to change that only on a
+trusted network.
 
 ## Why
 

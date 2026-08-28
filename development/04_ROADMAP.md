@@ -33,16 +33,22 @@ Work items:
    Scheduled Task renderer, SHA-256-verified runner archive, and one-job
    supervisor.~~ done — requires a real Windows host and trusted target repo for
    end-to-end validation.
-6. Point the first target repo's heaviest workflow jobs (e.g. Docker-image build
+6. ~~`scripts/dashboard.py` + `dashboard.sh`/`dashboard.ps1` — local status
+   dashboard: per-runner Idle/Running/Starting/Stopped state and a live log
+   tail, reading only local Docker/launchd/Scheduled Task state (no GitHub
+   API).~~ done. This is narrower than the Phase 3 "dashboard for runner
+   utilization/queue depth" item below — no queue-depth or wait-time
+   analytics, and no cross-host aggregation; that stays deferred.
+7. Point the first target repo's heaviest workflow jobs (e.g. Docker-image build
    jobs) at `runs-on: [self-hosted, linux, x64, docker]`; leave lightweight
    typecheck/lint jobs on `ubuntu-latest` initially to de-risk the cutover.
-7. Validate end-to-end on a real PR: checks appear normally, logs stream, registry
+8. Validate end-to-end on a real PR: checks appear normally, logs stream, registry
    push still works from the runner's Docker context.
-8. Size `replicas:` per repo against observed concurrency (a multi-way job fan-out
+9. Size `replicas:` per repo against observed concurrency (a multi-way job fan-out
    on a real PR is the concrete baseline to size against).
-9. Run for 2–4 weeks alongside GitHub-hosted as a fallback; confirm zero
-   GitHub-hosted minutes consumed for migrated jobs via the Billing → Metered usage
-   page.
+10. Run for 2–4 weeks alongside GitHub-hosted as a fallback; confirm zero
+    GitHub-hosted minutes consumed for migrated jobs via the Billing → Metered
+    usage page.
 
 Acceptance criteria: a merge as large as the one that originally exhausted the
 2,000-minute quota completes without touching GitHub-hosted minutes for any
@@ -83,8 +89,9 @@ Not scheduled. Trigger conditions to revisit:
 - Runner registration-token refresh silently failing becomes a recurring incident →
   add alerting (e.g. a simple healthcheck + notification, not a full metrics stack)
   rather than discovering it via a stuck PR check.
-- Job queue wait time becomes visible to developers → dashboard for
-  runner utilization/queue depth.
+- Job queue wait time becomes visible to developers → GitHub-API-backed
+  analytics for runner utilization/queue depth, on top of the local
+  Idle/Running/Stopped dashboard already delivered in Phase 1 item 6.
 
 ## Explicitly out of scope (not "later," just not this project)
 

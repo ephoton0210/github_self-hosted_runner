@@ -197,6 +197,42 @@ Compose/token-refresh mechanics are unchanged; only the registration target and
 config schema change. This is intentional — Phase 1 is not thrown away when Phase 2
 lands.
 
+## Local monitoring dashboard
+
+`scripts/dashboard.py` (started via `dashboard.sh` / `dashboard.ps1`) is a
+single-file, stdlib-only Python HTTP server — no new dependency beyond the
+PyYAML already required for the renderers, no build step, no framework. It
+binds to `127.0.0.1:8787` by default and serves one HTML page plus two JSON
+endpoints (`/api/status`, `/api/logs`) that a small polling frontend hits
+every few seconds; there's no WebSocket/SSE layer, matching this project's
+bias toward the simplest mechanism that's still responsive enough for a CI
+runner's job cadence.
+
+It reads only state already local to the host it runs on, per fleet type:
+
+- **Docker**: `compose.generated.yaml` for the roster (owner/repo/labels/name
+  per service), `docker compose ps --format json` for live container state.
+- **macOS**: `.runner-macos/launchd/manifest.txt` for the roster, each
+  service's rendered `.plist` for owner/repo, `launchctl print` for load
+  state.
+- **Windows**: `.runner-windows/scheduled-tasks/manifest.txt` for the roster,
+  each task's rendered XML for owner/repo, `schtasks /Query` for task state.
+
+For all three, per-runner Idle / Running \<job\> / Starting state comes from
+scanning the tail of that runner's own log for the same three literal
+markers [03_SECURITY.md](03_SECURITY.md)/README.md's "How to Verify" section
+already documents as ground truth: `Listening for Jobs`, `Running job: `,
+and `is ready for one job`. This is also why
+[`windows-runner-loop.ps1`](../scripts/windows-runner-loop.ps1) writes its
+own `.runner-windows/logs/<name>.log` — Task Scheduler has no equivalent of
+launchd's `StandardOutPath`, so without that the dashboard (and an operator
+tailing logs by hand) would have no Windows-native log to read at all.
+
+Explicitly out of scope for this dashboard (see [04_ROADMAP.md](04_ROADMAP.md)
+Phase 3): no GitHub API calls, so no job-queue-wait-time or utilization
+analytics; no cross-host aggregation — a repo's fleet spanning multiple hosts
+needs one dashboard instance per host, each showing only what that host runs.
+
 ## What's explicitly deferred past v1
 
 - Autoscaling (spin replicas up/down based on queue depth) — static `replicas:`

@@ -115,3 +115,36 @@ jobs:
           restart = root.find("./t:Settings/t:RestartOnFailure", ns)
           assert restart is not None
           PY
+
+  dashboard-smoke-test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.x"
+      - run: pip install -r requirements.txt
+      - name: Start the dashboard with no fleet configured
+        run: |
+          python3 scripts/dashboard.py --port 8787 &
+          echo $! > dashboard.pid
+          for i in $(seq 1 20); do
+            if curl -sf http://127.0.0.1:8787/api/status \
+                >/dev/null; then
+              break
+            fi
+            sleep 0.5
+          done
+      - name: Smoke-test every endpoint
+        run: |
+          curl -sf http://127.0.0.1:8787/ >/dev/null
+          curl -sf http://127.0.0.1:8787/api/status \
+            | python3 -m json.tool >/dev/null
+          curl -sf "http://127.0.0.1:8787/api/logs?id=bogus" \
+            | python3 -m json.tool >/dev/null
+          code=$(curl -s -o /dev/null -w '%{http_code}' \
+            http://127.0.0.1:8787/nope)
+          test "$code" = "404"
+      - name: Stop the dashboard
+        if: always()
+        run: kill "$(cat dashboard.pid)" 2>/dev/null || true

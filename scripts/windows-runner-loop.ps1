@@ -24,9 +24,20 @@ $PinnedSha256 = @{
     "arm64" = "b3799e9cf754fe4dfcb3d220c9701c924829737ee815dbeb674f8bd076794504"
 }
 
+$LogDir = Join-Path (Split-Path -Parent (Split-Path -Parent $StateDir)) "logs"
+New-Item -ItemType Directory -Force -Path $LogDir | Out-Null
+$LogPath = Join-Path $LogDir "$RunnerName.log"
+
+function Write-Log {
+    param([string]$Message)
+    $line = "$(Get-Date -Format 'yyyy-MM-dd HH:mm:ssK') $Message"
+    Write-Host $line
+    Add-Content -LiteralPath $LogPath -Value $line -ErrorAction SilentlyContinue
+}
+
 function Fail {
     param([string]$Message)
-    [Console]::Error.WriteLine("Error: $Message")
+    Write-Log "Error: $Message"
     exit 1
 }
 
@@ -85,7 +96,7 @@ function Get-ApiToken {
         $response = Invoke-RestMethod -Method Post -Uri "$ApiBase/actions/runners/$Endpoint" -Headers $AuthHeaders
         return $response.token
     } catch {
-        Write-Warning "could not request $Endpoint for ${Owner}/${Repo}: $($_.Exception.Message)"
+        Write-Log "Warning: could not request $Endpoint for ${Owner}/${Repo}: $($_.Exception.Message)"
         return $null
     }
 }
@@ -120,7 +131,7 @@ function Remove-CurrentRunner {
                 try {
                     & .\config.cmd remove --token $removalToken *>$null
                 } catch {
-                    Write-Warning "runner removal failed: $($_.Exception.Message)"
+                    Write-Log "Warning: runner removal failed: $($_.Exception.Message)"
                 } finally {
                     Pop-Location
                 }
@@ -137,13 +148,13 @@ $Archive = Join-Path $StateDir "cache\actions-runner-win-$RunnerArch-$RunnerVers
 if (Test-Path -LiteralPath $Archive -PathType Leaf) {
     $actualHash = (Get-FileHash -LiteralPath $Archive -Algorithm SHA256).Hash.ToLowerInvariant()
     if ($actualHash -ne $RunnerSha256) {
-        Write-Warning "cached runner archive failed SHA-256 verification; downloading it again."
+        Write-Log "Warning: cached runner archive failed SHA-256 verification; downloading it again."
         Remove-Item -LiteralPath $Archive -Force
     }
 }
 if (-not (Test-Path -LiteralPath $Archive -PathType Leaf)) {
     $temporaryArchive = "$Archive.$([System.IO.Path]::GetRandomFileName()).tmp"
-    Write-Host "==> Downloading actions/runner $RunnerVersion for Windows $RunnerArch..."
+    Write-Log "==> Downloading actions/runner $RunnerVersion for Windows $RunnerArch..."
     try {
         Invoke-WebRequest -Uri "https://github.com/actions/runner/releases/download/v$RunnerVersion/actions-runner-win-$RunnerArch-$RunnerVersion.zip" `
             -OutFile $temporaryArchive -MaximumRetryCount 3
@@ -171,7 +182,7 @@ try {
         try {
             Expand-Archive -LiteralPath $Archive -DestinationPath $script:CurrentRunnerDir -Force
         } catch {
-            Write-Warning "could not extract ${Archive}: $($_.Exception.Message); retrying in ${RetrySeconds}s."
+            Write-Log "Warning: could not extract ${Archive}: $($_.Exception.Message); retrying in ${RetrySeconds}s."
             Remove-CurrentRunner
             Start-Sleep -Seconds $RetrySeconds
             continue
@@ -179,7 +190,7 @@ try {
 
         $registrationToken = Get-ApiToken -Endpoint "registration-token"
         if (-not $registrationToken) {
-            Write-Warning "registration token unavailable; retrying in ${RetrySeconds}s."
+            Write-Log "Warning: registration token unavailable; retrying in ${RetrySeconds}s."
             Remove-CurrentRunner
             Start-Sleep -Seconds $RetrySeconds
             continue
@@ -204,14 +215,20 @@ try {
             Pop-Location
         }
         if (-not $configOk) {
-            Write-Warning "runner configuration failed; retrying in ${RetrySeconds}s."
+            Write-Log "Warning: runner configuration failed; retrying in ${RetrySeconds}s."
             Remove-CurrentRunner
             Start-Sleep -Seconds $RetrySeconds
             continue
         }
 
-        Write-Host "==> $RunnerName is ready for one job."
-        $script:RunnerProcess = Start-Process -FilePath (Join-Path $script:CurrentRunnerDir "run.cmd") `
+        Write-Log "==> $RunnerName is ready for one job."
+        # Task Scheduler has no equivalent of launchd's StandardOutPath, so
+        # run.cmd's own output (job assignment, "Listening for Jobs", step
+        # logs) is captured by routing it through cmd.exe's own redirection
+        # into the same log file this supervisor writes to.
+        $runCmdPath = Join-Path $script:CurrentRunnerDir "run.cmd"
+        $cmdArguments = "/d /c `"`"$runCmdPath`" >> `"$LogPath`" 2>&1`""
+        $script:RunnerProcess = Start-Process -FilePath "$env:SystemRoot\System32\cmd.exe" -ArgumentList $cmdArguments `
             -WorkingDirectory $script:CurrentRunnerDir -PassThru -WindowStyle Hidden
 
         while (-not $script:RunnerProcess.HasExited) {
@@ -232,7 +249,7 @@ try {
             break
         }
         if ($runnerExitCode -ne 0) {
-            Write-Warning "$RunnerName exited with ${runnerExitCode}; retrying in ${RetrySeconds}s."
+            Write-Log "Warning: $RunnerName exited with ${runnerExitCode}; retrying in ${RetrySeconds}s."
             Start-Sleep -Seconds $RetrySeconds
         }
     }
