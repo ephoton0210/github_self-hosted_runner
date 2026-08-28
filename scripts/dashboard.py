@@ -480,6 +480,21 @@ class DashboardHandler(BaseHTTPRequestHandler):
         self.wfile.write(body)
 
     def do_GET(self) -> None:  # noqa: N802 - stdlib method name
+        try:
+            self._dispatch_get()
+        except (BrokenPipeError, ConnectionResetError):
+            # Client (browser tab closed / poll superseded by a newer one)
+            # disconnected before we finished writing. Nothing to send to
+            # anymore — not a real error, so don't dump a raw traceback.
+            pass
+        except Exception as error:  # noqa: BLE001 - last-resort handler for this request
+            print(f"[dashboard] error handling {self.path}: {error}", file=sys.stderr)
+            try:
+                self._send_json({"error": str(error)}, status=500)
+            except (BrokenPipeError, ConnectionResetError):
+                pass
+
+    def _dispatch_get(self) -> None:
         parsed = urlparse(self.path)
         if parsed.path == "/":
             body = INDEX_HTML.encode("utf-8")
