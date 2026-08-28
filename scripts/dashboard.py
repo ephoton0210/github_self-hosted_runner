@@ -612,6 +612,8 @@ const STATE_LABELS = {idle: "Idle", running: "Running", starting: "Starting", st
 const RUNNER_COLS = 6; // Name, Repo, State, CPU, Mem, Detail
 let openLogId = null;
 let logTimer = null;
+let logState = {}; // runner id -> last-fetched lines, for incremental append
+let lastFleetShape = null; // see fleetShape() — patch in place vs full rebuild
 
 function escapeHtml(s) {
   return String(s).replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
@@ -670,16 +672,56 @@ function renderSection(key, data) {
 function renderHost(h) {
   const title = `<h2 class="host-title">${escapeHtml(h.label)}${h.reachable ? ` <span class="host-os">(${escapeHtml(h.os || "?")})</span>` : ""}</h2>`;
   if (!h.reachable) {
-    return `<div class="host-block unreachable">
+    return `<div class="host-block unreachable" data-host="${escapeHtml(h.label)}">
       <div class="host-header">${title}${badge("unknown", "Unreachable")}</div>
       <div class="empty">${escapeHtml(h.error || "could not reach this host")}</div>
     </div>`;
   }
   const sections = Object.entries(h.sections || {}).map(([k, v]) => renderSection(k, v)).join("");
-  return `<div class="host-block">
+  return `<div class="host-block" data-host="${escapeHtml(h.label)}">
     <div class="host-header">${title}<div class="host-resources">${escapeHtml(formatResources(h.resources))}</div></div>
     ${sections}
   </div>`;
+}
+
+// A fingerprint of "which host/runner rows exist, in what order" — cheap to
+// compute and compare. Unchanged between two polls means every row already
+// on the page still means the same thing, so we can patch text/badges in
+// place instead of tearing down and rebuilding the DOM (which would also
+// blow away any open log panel's already-fetched content and scroll
+// position — the actual source of the "screen jumps every few seconds"
+// jitter this replaces).
+function fleetShape(data) {
+  const parts = [];
+  for (const h of data.hosts) {
+    parts.push(`H:${h.label}:${h.reachable}`);
+    if (!h.reachable) continue;
+    for (const section of Object.values(h.sections || {})) {
+      for (const r of section.runners || []) parts.push(`R:${r.id}`);
+    }
+  }
+  return parts.join("|");
+}
+
+function patchStatus(data) {
+  for (const h of data.hosts) {
+    if (!h.reachable) continue;
+    const resEl = document.querySelector(`.host-block[data-host="${h.label}"] .host-resources`);
+    if (resEl) resEl.textContent = formatResources(h.resources);
+    for (const section of Object.values(h.sections || {})) {
+      for (const r of section.runners || []) patchRunnerRow(r);
+    }
+  }
+}
+
+function patchRunnerRow(r) {
+  const row = document.querySelector(`tr.runner-row[data-id="${r.id}"]`);
+  if (!row) return;
+  const cells = row.querySelectorAll("td");
+  cells[2].innerHTML = badge(r.state); // Name, Repo unchanged; State, CPU, Mem, Detail can.
+  cells[3].textContent = r.cpu_percent != null ? `${r.cpu_percent}%` : "—";
+  cells[4].textContent = r.mem_usage ? r.mem_usage : "—";
+  cells[5].textContent = r.detail || "";
 }
 
 async function refreshStatus() {
@@ -688,6 +730,14 @@ async function refreshStatus() {
   const reachable = data.hosts.filter(h => h.reachable).length;
   const suffix = data.hosts.length > 1 ? ` — ${reachable}/${data.hosts.length} host(s) reachable` : "";
   document.getElementById("meta").textContent = `updated ${new Date(data.generated_at).toLocaleTimeString()}${suffix}`;
+
+  const shape = fleetShape(data);
+  if (shape === lastFleetShape) {
+    patchStatus(data);
+    return;
+  }
+  lastFleetShape = shape;
+  logState = {}; // any open log panel's DOM is about to be rebuilt from scratch below
   const main = document.getElementById("main");
   main.innerHTML = data.hosts.map(renderHost).join("");
   main.querySelectorAll(".runner-row").forEach(row => {
@@ -704,21 +754,29 @@ function toggleLog(id) {
   if (!panel) return;
   if (openLogId === id) {
     panel.classList.remove("open");
+    delete logState[openLogId];
     openLogId = null;
     clearInterval(logTimer);
     return;
   }
   if (openLogId) {
-    const prev = document.getElementById(`log-${cssId(openLogId)}`);
-    if (prev) prev.classList.remove("open");
+    const prevPanel = document.getElementById(`log-${cssId(openLogId)}`);
+    if (prevPanel) prevPanel.classList.remove("open");
+    delete logState[openLogId];
   }
   openLogId = id;
+  panel.querySelector(".log-body").textContent = "loading...";
   panel.classList.add("open");
   clearInterval(logTimer);
   refreshLog();
   logTimer = setInterval(refreshLog, 2000);
 }
 
+// Runs independently of refreshStatus's timer — a status poll never touches
+// an open log panel's DOM (see patchStatus above), so this is the only thing
+// that updates it. Appends only the lines that are actually new instead of
+// replacing the whole block of text every tick, which is what let people
+// select/copy log text and kept the scroll position stable while reading.
 async function refreshLog() {
   if (!openLogId) return;
   const res = await fetch(`/api/logs?id=${encodeURIComponent(openLogId)}&tail=200`);
@@ -727,7 +785,25 @@ async function refreshLog() {
   if (!panel) return;
   const body = panel.querySelector(".log-body");
   const wasAtBottom = body.scrollTop + body.clientHeight >= body.scrollHeight - 20;
-  body.textContent = data.lines.join("\\n");
+
+  const prev = logState[openLogId] || [];
+  const next = data.lines;
+  const isGrowingTail = prev.length > 0 && next.length >= prev.length
+    && next.slice(0, prev.length).join("\\n") === prev.join("\\n");
+
+  if (isGrowingTail) {
+    const added = next.slice(prev.length);
+    if (added.length > 0) {
+      body.appendChild(document.createTextNode((body.textContent ? "\\n" : "") + added.join("\\n")));
+    }
+  } else {
+    // First fetch for this panel, or older lines rolled out of the tail
+    // window (log grew past `tail=200` since the last poll) — no safe
+    // incremental diff, so fall back to a full (infrequent) replace.
+    body.textContent = next.join("\\n");
+  }
+  logState[openLogId] = next;
+
   panel.querySelector(".log-updated").textContent = new Date().toLocaleTimeString();
   if (wasAtBottom) body.scrollTop = body.scrollHeight;
 }
