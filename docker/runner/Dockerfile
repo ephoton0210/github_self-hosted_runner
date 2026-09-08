@@ -11,7 +11,14 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
         jq \
         git \
         gnupg \
+        libatomic1 \
     && rm -rf /var/lib/apt/lists/*
+# libatomic1: not needed by the runner binary itself -- pyright-python's
+# nodeenv step (bvSkill's omnisolve-build-check.yml backend-check job)
+# downloads a prebuilt Node.js binary that dlopens libatomic.so.1 at
+# startup, which this minimal Ubuntu 24.04 base image doesn't ship.
+# Confirmed 2026-09-08: node fails with "error while loading shared
+# libraries: libatomic.so.1: cannot open shared object file" without it.
 
 # Docker CLI only — no daemon. DooD: /var/run/docker.sock is bind-mounted at
 # runtime (see development/02_DEPLOYMENT_DESIGN.md). Installing just the CLI
