@@ -74,6 +74,40 @@ Go to GitHub **Settings** → **Developer Settings** → **Personal access token
 
 ## Quickstart
 
+### Linux host (Ubuntu/Debian): one-shot install
+
+On a fresh Ubuntu or Debian host, `install.sh` does the whole setup. There is no
+`start.py`; the Linux entry points are `install.sh`, `start.sh` and `stop.sh`.
+
+```bash
+git clone https://github.com/ephoton0210/github_self-hosted_runner.git
+cd github_self-hosted_runner
+./install.sh            # install, configure and verify
+./install.sh --start    # the same, then start the runners
+./install.sh --dry-run  # only print what would be done
+```
+
+It installs Docker Engine with the Compose and Buildx plugins from Docker's
+official apt repository (and `python3-yaml`), enables the Docker service at boot,
+adds you to the `docker` group, creates `/opt/buildx-cache`, creates `.env`
+(it asks for the `GH_PAT`, input hidden, file mode 600) and `config/repos.yaml`
+from their examples, then checks the result. It needs `sudo` and is safe to run
+again: every step checks the current state first.
+
+- Fill in `config/repos.yaml` (target repositories, labels, replicas) before
+  starting; the script refuses to start the runners while it still has the example
+  placeholders.
+- Log out and back in (or run `newgrp docker`) after the first run so that
+  `docker` works without `sudo`.
+- For unattended use, pass the token in the environment:
+  `GH_PAT=github_pat_... ./install.sh --yes`.
+- The script also reads the kernel clock and warns when the host clock runs fast
+  or slow (kernel tick other than 10000). The runner containers share the host
+  clock, and a clock that steps backwards fails tests that order rows by timestamp.
+
+The steps below (and the macOS and Windows sections) describe what the script
+automates and how to do it by hand.
+
 ### macOS host requirements
 
 Native macOS runners are for workflows that genuinely need macOS (for example,
