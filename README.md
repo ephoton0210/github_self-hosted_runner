@@ -267,6 +267,13 @@ For native Windows runners:
 Get-ScheduledTask -TaskPath '\GitHubSelfHostedRunner\'
 ```
 
+To scale runners without interrupting running jobs, edit `replicas` in `config/repos.yaml`:
+- Scale up: rerun `./start.sh`. `docker compose up -d` only creates the missing containers.
+  (If the runner image changed, `--build` recreates existing ones too; use
+  `docker compose -f compose.generated.yaml up -d --no-build --no-recreate` while jobs are running.)
+- Scale down: run `./scale-down.sh` (add `--dry-run` to preview). It removes only idle runners that
+  are no longer in the config and skips busy ones; rerun it after those jobs finish.
+
 To stop all runners:
 ```bash
 ./stop.sh
