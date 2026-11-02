@@ -126,6 +126,8 @@ def collect_docker_runners() -> dict:
     runners = []
     for service_name, service in services.items():
         env = service.get("environment", {})
+        if "RUNNER_NAME" not in env:
+            continue  # support service such as the local image registry
         owner = env.get("GH_OWNER", "?")
         repo = env.get("GH_REPO", "?")
         runner_name = env.get("RUNNER_NAME", service_name)

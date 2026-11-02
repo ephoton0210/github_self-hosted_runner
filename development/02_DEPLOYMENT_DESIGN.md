@@ -131,6 +131,23 @@ builds this project exists to make cheap. If a future target repo ever needs to 
 untrusted/fork-triggered workflows on this fleet, that repo must **not** be added to
 this runner pool — full stop; see the security doc.
 
+## Local artifact and image storage
+
+Included Actions storage is pooled between artifacts and GitHub Packages and is
+billed as GB-hours over the month, so a self-hosted runner that still uploads
+artifacts or pushes to GHCR keeps filling it. The Linux fleet therefore adds two
+host-local stores, both defined in `scripts/render-compose.py`:
+
+| Store | Mechanism | Decision |
+|---|---|---|
+| Artifacts | Host directory `/srv/ci-evidence`, bind-mounted at the same path into every runner container and exported as `CI_EVIDENCE_DIR` | Same path on both sides, because with DooD a job's `docker run -v` is resolved by the host daemon. Pruned by age (14 days) from cron; per-run directory `<run_id>/`. |
+| Images | `registry:2` as a Compose service, published on `127.0.0.1:5000`, data in `/srv/registry`, exported as `LOCAL_REGISTRY` | Loopback binding: Docker allows plain HTTP for `localhost`, so no TLS or daemon change is needed, at the cost that images are only pullable on this host. |
+
+Consequences: every job that reads another job's files must run on this fleet
+(single host, shared directory); images that other machines deploy still need
+GHCR or a network-reachable registry; the dashboard skips services without a
+`RUNNER_NAME`, so the registry does not appear as a runner.
+
 ## Declarative repo list (Phase 1)
 
 Phase 1's registration sprawl (one runner set per repo) is kept manageable with a

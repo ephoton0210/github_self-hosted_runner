@@ -26,6 +26,9 @@ scaffolded — see [`development/`](development/) for the full plan and
 | [`scripts/render-windows-scheduled-task.py`](scripts/render-windows-scheduled-task.py) | Renders optional `windows:` entries into local Scheduled Task XML |
 | [`scripts/windows-runner-loop.ps1`](scripts/windows-runner-loop.ps1) | Native Windows one-job runner supervisor, download verifier, and cleanup loop |
 | [`dashboard.sh`](dashboard.sh) / [`dashboard.ps1`](dashboard.ps1) | Starts the local status dashboard for this host's runner fleet |
+| [`scripts/prune-ci-evidence.sh`](scripts/prune-ci-evidence.sh) | Deletes local CI evidence older than N days (installed as a daily cron job by `install.sh`) |
+| [`scripts/prune-docker-volumes.sh`](scripts/prune-docker-volumes.sh) | Deletes unused anonymous Docker volumes older than N days (default 7; installed as a daily cron job by `install.sh`) |
+| [`scripts/relocate-storage.sh`](scripts/relocate-storage.sh) | One-off: moves Docker, containerd and the buildx cache from the root filesystem to a larger disk (default `/data`) |
 | [`scripts/dashboard.py`](scripts/dashboard.py) | Dashboard web server — reads local Docker/launchd/Scheduled Task state, no GitHub API calls |
 | [`config/repos.yaml.example`](config/repos.yaml.example) | Template for the declarative repo list — copy to `config/repos.yaml` (gitignored) and fill in real values |
 
@@ -44,6 +47,7 @@ container cannot execute macOS or Windows-native workflows:
 | **Linux pre-installed tooling** | `docker-ce-cli`, `git`, `curl`, `jq`, `ca-certificates`, `gnupg` |
 | **Docker Support** | **DooD (Docker-outside-of-Docker)** via host `/var/run/docker.sock` bind mount |
 | **Build Caching** | Reuses host Docker layer cache across jobs (resulting in faster container builds) |
+| **Local artifact and image storage** | `/srv/ci-evidence` (artifacts) and a loopback registry at `localhost:5000` (images) on the host — see [Local artifacts and images](#local-artifacts-and-images) |
 | **macOS lifecycle** | User-level `launchd` agents each provision a verified, native, ephemeral runner for one job, then erase its runner/work directory |
 | **Windows lifecycle** | User-level Scheduled Tasks each provision a verified, native, ephemeral runner for one job, then erase its runner/work directory |
 
@@ -89,7 +93,7 @@ cd github_self-hosted_runner
 
 It installs Docker Engine with the Compose and Buildx plugins from Docker's
 official apt repository (and `python3-yaml`), enables the Docker service at boot,
-adds you to the `docker` group, creates `/opt/buildx-cache`, creates `.env`
+adds you to the `docker` group, creates `/opt/buildx-cache`, `/srv/ci-evidence` and `/srv/registry` (plus a daily prune job for old evidence), creates `.env`
 (it asks for the `GH_PAT`, input hidden, file mode 600) and `config/repos.yaml`
 from their examples, then checks the result. It needs `sudo` and is safe to run
 again: every step checks the current state first.
@@ -337,6 +341,60 @@ When a workflow job with `runs-on: [self-hosted, ...]` is triggered:
 - **GitHub UI**: The runner status changes from **`Idle`** to **`Active`**.
 - **Container Logs**: You will see `Running job: <job-name>` followed by step execution logs.
 - **Lifecycle**: Upon job completion, the container exits (`--ephemeral`), and Docker Compose automatically spins up a fresh container instance with a new registration token to wait for the next job.
+
+## Local artifacts and images
+
+GitHub's included Actions storage (2 GB on the Team plan, 500 MB on Free) is
+**pooled** between workflow artifacts and GitHub Packages (GHCR images), and it is
+billed as GB-hours accumulated over the month: deleting files stops further
+accrual but never refunds what was already accrued. Self-hosted runners do not
+change that — `actions/upload-artifact` still uploads to GitHub. (Actions caches
+are separate: 10 GB per repository, not part of the 2 GB.) To keep both off
+GitHub, the Linux fleet provides two local stores, started by `./start.sh` with
+the runners:
+
+| Need | GitHub-hosted way | Local way | Where it lives |
+|---|---|---|---|
+| Keep job output (test evidence, build files) | `actions/upload-artifact` | copy to `$CI_EVIDENCE_DIR` | `/srv/ci-evidence/<run_id>/...` on the host |
+| Pass files between jobs | `actions/download-artifact` | read the same directory | same host, so all such jobs must use this fleet |
+| Publish an image | push to `ghcr.io/<owner>/<name>` | push to `$LOCAL_REGISTRY/<name>` | `registry:2` container, `127.0.0.1:5000`, data in `/srv/registry` |
+| Docker layer cache | `cache-to: type=gha` | `type=local,dest=/opt/buildx-cache/<name>` | `/opt/buildx-cache` |
+| `.dockerbuild` build record | uploaded automatically | set `DOCKER_BUILD_RECORD_UPLOAD: false` | not created |
+
+`CI_EVIDENCE_DIR` and `LOCAL_REGISTRY` are set in every runner container, so a
+step can use them as plain shell variables. Workflow example:
+
+```yaml
+env:
+  DOCKER_BUILD_RECORD_UPLOAD: false
+steps:
+  - name: Retain backend test evidence
+    if: always()
+    run: |
+      d="$CI_EVIDENCE_DIR/${{ github.run_id }}/backend-pytest"
+      mkdir -p "$d" && cp -r test-results/. "$d"/
+  - name: Build and push to the local registry
+    run: |
+      docker build -t "$LOCAL_REGISTRY/omnisolve-backend:${{ github.sha }}" .
+      docker push "$LOCAL_REGISTRY/omnisolve-backend:${{ github.sha }}"
+```
+
+Notes:
+
+- Docker treats `localhost` registries as plain-HTTP-safe, so no TLS or daemon
+  setting is needed, and the port is bound to loopback only: nothing outside this
+  host can pull the images. Consumers that deploy from other machines cannot use
+  this registry; keep GHCR for those images and prune old versions instead.
+- Evidence older than 14 days is deleted daily by `/etc/cron.daily/ci-evidence-prune`
+  (`scripts/prune-ci-evidence.sh [days]`). The registry has no automatic cleanup;
+  delete unused repositories under `/srv/registry/docker/registry/v2/repositories/`
+  and run `docker exec registry registry garbage-collect /etc/docker/registry/config.yml`.
+- Jobs that run on GitHub-hosted runners (for example macOS and Windows desktop
+  builds without a native runner) keep using GitHub artifacts; give them a short
+  `retention-days`.
+- Existing hosts: run `./install.sh` again to create the directories and the prune
+  job, then `./start.sh` to start the registry. To pull a local image on another
+  workflow, use the same `localhost:5000/<name>:<tag>` reference.
 
 ## Monitoring Dashboard
 

@@ -28,8 +28,11 @@ Sets up a Debian/Ubuntu host to run the self-hosted runner fleet:
   1. installs Docker Engine, the Compose and Buildx plugins and python3-yaml
   2. enables the Docker service at boot and adds you to the docker group
   3. creates /opt/buildx-cache (bind-mounted into every runner container)
-  4. creates .env (asks for GH_PAT) and config/repos.yaml from their examples
-  5. checks the result, including that the host clock runs at the right speed
+  4. creates /srv/ci-evidence (local replacement for upload-artifact), /srv/registry
+     (storage of the local image registry) and daily prune jobs for old evidence
+     and for unused anonymous Docker volumes
+  5. creates .env (asks for GH_PAT) and config/repos.yaml from their examples
+  6. checks the result, including that the host clock runs at the right speed
 
 Options:
   --start     run ./start.sh when everything is in place
@@ -189,6 +192,22 @@ ensure_buildx_cache() {
         log "Creating /opt/buildx-cache (shared docker/build-push-action cache, bind-mounted into every runner)"
         run "${SUDO[@]}" install -d -m 0755 /opt/buildx-cache
     fi
+}
+
+ensure_local_storage() {
+    local dir
+    for dir in /srv/ci-evidence /srv/registry; do
+        if [ -d "${dir}" ]; then
+            log "${dir} already exists"
+        else
+            log "Creating ${dir}"
+            run "${SUDO[@]}" install -d -m 0755 "${dir}"
+        fi
+    done
+    log "Installing the daily prune job for /srv/ci-evidence (keeps 14 days)"
+    run "${SUDO[@]}" install -m 0755 scripts/prune-ci-evidence.sh /etc/cron.daily/ci-evidence-prune
+    log "Installing the daily prune job for unused anonymous Docker volumes (older than 7 days)"
+    run "${SUDO[@]}" install -m 0755 scripts/prune-docker-volumes.sh /etc/cron.daily/docker-volume-prune
 }
 
 # set_pat <value>: put the value in .env (kept at mode 600), leaving every other line as it is.
@@ -364,6 +383,7 @@ install_docker
 enable_docker_service
 ensure_docker_group
 ensure_buildx_cache
+ensure_local_storage
 setup_env_file
 setup_repos_file
 verify

@@ -46,7 +46,11 @@ Work items:
    push still works from the runner's Docker context.
 9. Size `replicas:` per repo against observed concurrency (a multi-way job fan-out
    on a real PR is the concrete baseline to size against).
-10. Run for 2–4 weeks alongside GitHub-hosted as a fallback; confirm zero
+10. ~~Local artifact and image storage — `/srv/ci-evidence`, a loopback
+    `registry:2` service, `install.sh` setup and a daily prune job, so migrated
+    jobs stop consuming pooled Actions/Packages storage.~~ done — workflows in the
+    target repos still have to be switched from `upload-artifact` / `ghcr.io`.
+11. Run for 2–4 weeks alongside GitHub-hosted as a fallback; confirm zero
     GitHub-hosted minutes consumed for migrated jobs via the Billing → Metered
     usage page.
 
@@ -96,4 +100,4 @@ Not scheduled. Trigger conditions to revisit:
 ## Explicitly out of scope (not "later," just not this project)
 
 - General-purpose CI platform features unrelated to the minutes problem.
-- GHCR storage/bandwidth quota management — separate problem, separate quota.
+- GHCR bandwidth quota management. (Storage is covered by the local registry in Phase 1 item 10 for images consumed on the runner host only.)

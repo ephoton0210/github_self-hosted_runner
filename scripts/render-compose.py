@@ -21,6 +21,15 @@ GENERATED_HEADER = (
 )
 
 
+# Local replacements for GitHub-hosted storage, so jobs never need
+# actions/upload-artifact (Actions storage quota) or ghcr.io (Packages quota,
+# which is pooled with it). See development/02_DEPLOYMENT_DESIGN.md,
+# "Local artifact and image storage".
+EVIDENCE_DIR = "/srv/ci-evidence"
+REGISTRY_DIR = "/srv/registry"
+REGISTRY_ADDR = "localhost:5000"
+
+
 def default_name_prefix(repo: str, *, host_is_windows: bool) -> str:
     # These are still Linux containers on a Windows host (Docker Desktop), not
     # native Windows runners — the "-windows-docker" suffix keeps them visibly
@@ -59,6 +68,9 @@ def render(repos_config, *, host_is_windows: bool = platform.system() == "Window
                     "GH_REPO": repo,
                     "RUNNER_NAME": runner_name,
                     "RUNNER_LABELS": ",".join(labels),
+                    # Seen by job steps as plain shell variables.
+                    "CI_EVIDENCE_DIR": EVIDENCE_DIR,
+                    "LOCAL_REGISTRY": REGISTRY_ADDR,
                 },
                 "volumes": [
                     "/var/run/docker.sock:/var/run/docker.sock",
@@ -72,8 +84,23 @@ def render(repos_config, *, host_is_windows: bool = platform.system() == "Window
                     # shared between runner-<repo>-1/-2 nor durable across a
                     # container recreate.
                     "/opt/buildx-cache:/opt/buildx-cache",
+                    # Same path on host and in the container: a job's
+                    # `docker run -v` is resolved by the host daemon (DooD),
+                    # so the two views of this directory must agree.
+                    f"{EVIDENCE_DIR}:{EVIDENCE_DIR}",
                 ],
             }
+
+    if services:
+        # Loopback only: Docker treats localhost registries as plain-HTTP-safe,
+        # and nothing outside this host can push to or pull from it.
+        services["registry"] = {
+            "image": "registry:2",
+            "container_name": "registry",
+            "restart": "unless-stopped",
+            "ports": ["127.0.0.1:5000:5000"],
+            "volumes": [f"{REGISTRY_DIR}:/var/lib/registry"],
+        }
 
     return {"services": services}
 
